@@ -1,0 +1,560 @@
+import './dot.js';
+
+export class WebElement extends HTMLElement {
+  constructor() {
+    super();
+
+    this._renderRoot = this.attachShadow({ mode: 'open' });
+    this._internals = this.attachInternals();
+  }
+
+  connectedCallback() {
+    const args = this.render();
+
+    const templateMarkup = args.slice(1).reduce((acc, val, idx) => {
+      const type = Object.prototype.toString.call(val);
+  
+      acc += args[0][idx];
+  
+      switch (type) {
+        case '[object Function]':
+          if (val.name === 'r') {
+            acc += `data-ref="${val()}"`;
+          } else if (val.name === 'e') {
+            acc += `data-handler="${val().name},${val().handler.name}"`
+          }
+          break;
+        case '[object Array]':
+          acc += `[${val.toString()}]`;
+          break;
+        default:
+          acc += val.toString();
+          break;
+      }
+  
+      if (idx === args.length - 2) {
+        acc += args[0][args.length - 1];
+      }
+  
+      return acc;
+    }, '');
+  
+    this._renderRoot.innerHTML = doT.template(`<style>${this.styles()}</style>${templateMarkup}`, null, {})();
+
+    const refElements = this._renderRoot.querySelectorAll('[data-ref]');
+
+    for (const element of refElements) {
+      if (!Object.hasOwn(this, element.dataset.ref)) {
+        throw new Error(`Es wurde keine Eigenschaft mit dem Namen ${element.dataset.ref} gefunden!`);
+      }
+
+      this[element.dataset.ref] = new QElement([element]);
+      element.removeAttribute('data-ref');
+    }
+
+    const handlerElements = this._renderRoot.querySelectorAll('[data-handler]');
+
+    for (const element of handlerElements) {
+      const handlerInfo = element.dataset.handler.split(',');
+      
+      if (!Object.hasOwn(this.constructor.prototype, handlerInfo[1])) {
+        throw new Error(`Es wurde keine Methode mit dem Namen ${handlerInfo[1]} gefunden!`);
+      }
+
+      element.addEventListener(handlerInfo[0], this.constructor.prototype[handlerInfo[1]].bind(this));
+      element.removeAttribute('data-handler');
+    }
+
+    this.firstRender();
+  }
+
+  firstRender() {}
+
+  styles() {
+    return css``;
+  }
+
+  render() {
+    return html``;
+  }
+}
+
+export function ref(id) {
+  return function r() {
+    return id.toString()
+  };
+}
+
+export function event(name, handler) {
+  return function e() {
+    return { name, handler };
+  }
+}
+
+/**
+ * @param {...string} template
+ * @returns {string}
+ */
+export function html(...args) {
+  return args;
+}
+
+/**
+ * @param {...string} styles
+ * @returns {string}
+ */
+export function css(...styles) {
+  return styles;
+}
+
+// ============================================================================
+// ============================================================================
+
+var doT = {
+  name: "doT",
+  version: "1.1.1",
+  templateSettings: {
+    evaluate:    /\{\{([\s\S]+?(\}?)+)\}\}/g,
+    interpolate: /\{\{=([\s\S]+?)\}\}/g,
+    encode:      /\{\{!([\s\S]+?)\}\}/g,
+    use:         /\{\{#([\s\S]+?)\}\}/g,
+    useParams:   /(^|[^\w$])def(?:\.|\[[\'\"])([\w$\.]+)(?:[\'\"]\])?\s*\:\s*([\w$\.]+|\"[^\"]+\"|\'[^\']+\'|\{[^\}]+\})/g,
+    define:      /\{\{##\s*([\w\.$]+)\s*(\:|=)([\s\S]+?)#\}\}/g,
+    defineParams:/^\s*([\w$]+):([\s\S]+)/,
+    conditional: /\{\{\?(\?)?\s*([\s\S]*?)\s*\}\}/g,
+    iterate:     /\{\{~\s*(?:\}\}|([\s\S]+?)\s*\:\s*([\w$]+)\s*(?:\:\s*([\w$]+))?\s*\}\})/g,
+    varname:	"it",
+    strip:		true,
+    append:		true,
+    selfcontained: false,
+    doNotSkipEncoded: false
+  },
+  template: undefined,
+  compile:  undefined,
+  log: true
+};
+
+doT.encodeHTMLSource = function(doNotSkipEncoded) {
+  var encodeHTMLRules = { "&": "&#38;", "<": "&#60;", ">": "&#62;", '"': "&#34;", "'": "&#39;", "/": "&#47;" },
+    matchHTML = doNotSkipEncoded ? /[&<>"'\/]/g : /&(?!#?\w+;)|<|>|"|'|\//g;
+  return function(code) {
+    return code ? code.toString().replace(matchHTML, function(m) {return encodeHTMLRules[m] || m;}) : "";
+  };
+};
+
+var startend = {
+  append: { start: "'+(",      end: ")+'",      startencode: "'+encodeHTML(" },
+  split:  { start: "';out+=(", end: ");out+='", startencode: "';out+=encodeHTML(" }
+}, skip = /$^/;
+
+function resolveDefs(c, block, def) {
+  return ((typeof block === "string") ? block : block.toString())
+  .replace(c.define || skip, function(m, code, assign, value) {
+    if (code.indexOf("def.") === 0) {
+      code = code.substring(4);
+    }
+    if (!(code in def)) {
+      if (assign === ":") {
+        if (c.defineParams) value.replace(c.defineParams, function(m, param, v) {
+          def[code] = {arg: param, text: v};
+        });
+        if (!(code in def)) def[code]= value;
+      } else {
+        new Function("def", "def['"+code+"']=" + value)(def);
+      }
+    }
+    return "";
+  })
+  .replace(c.use || skip, function(m, code) {
+    if (c.useParams) code = code.replace(c.useParams, function(m, s, d, param) {
+      if (def[d] && def[d].arg && param) {
+        var rw = (d+":"+param).replace(/'|\\/g, "_");
+        def.__exp = def.__exp || {};
+        def.__exp[rw] = def[d].text.replace(new RegExp("(^|[^\\w$])" + def[d].arg + "([^\\w$])", "g"), "$1" + param + "$2");
+        return s + "def.__exp['"+rw+"']";
+      }
+    });
+    var v = new Function("def", "return " + code)(def);
+    return v ? resolveDefs(c, v, def) : v;
+  });
+}
+
+function unescape(code) {
+  return code.replace(/\\('|\\)/g, "$1").replace(/[\r\t\n]/g, " ");
+}
+
+doT.template = function(tmpl, c, def) {
+  c = c || doT.templateSettings;
+  var cse = c.append ? startend.append : startend.split, needhtmlencode, sid = 0, indv,
+    str  = (c.use || c.define) ? resolveDefs(c, tmpl, def || {}) : tmpl;
+
+  str = ("var out='" + (c.strip ? str.replace(/(^|\r|\n)\t* +| +\t*(\r|\n|$)/g," ")
+        .replace(/\r|\n|\t|\/\*[\s\S]*?\*\//g,""): str)
+    .replace(/'|\\/g, "\\$&")
+    .replace(c.interpolate || skip, function(m, code) {
+      return cse.start + unescape(code) + cse.end;
+    })
+    .replace(c.encode || skip, function(m, code) {
+      needhtmlencode = true;
+      return cse.startencode + unescape(code) + cse.end;
+    })
+    .replace(c.conditional || skip, function(m, elsecase, code) {
+      return elsecase ?
+        (code ? "';}else if(" + unescape(code) + "){out+='" : "';}else{out+='") :
+        (code ? "';if(" + unescape(code) + "){out+='" : "';}out+='");
+    })
+    .replace(c.iterate || skip, function(m, iterate, vname, iname) {
+      if (!iterate) return "';} } out+='";
+      sid+=1; indv=iname || "i"+sid; iterate=unescape(iterate);
+      return "';var arr"+sid+"="+iterate+";if(arr"+sid+"){var "+vname+","+indv+"=-1,l"+sid+"=arr"+sid+".length-1;while("+indv+"<l"+sid+"){"
+        +vname+"=arr"+sid+"["+indv+"+=1];out+='";
+    })
+    .replace(c.evaluate || skip, function(m, code) {
+      return "';" + unescape(code) + "out+='";
+    })
+    + "';return out;")
+    .replace(/\n/g, "\\n").replace(/\t/g, '\\t').replace(/\r/g, "\\r")
+    .replace(/(\s|;|\}|^|\{)out\+='';/g, '$1').replace(/\+''/g, "");
+    //.replace(/(\s|;|\}|^|\{)out\+=''\+/g,'$1out+=');
+
+  if (needhtmlencode) {
+    if (!c.selfcontained && _globals && !_globals._encodeHTML) _globals._encodeHTML = doT.encodeHTMLSource(c.doNotSkipEncoded);
+    str = "var encodeHTML = typeof _encodeHTML !== 'undefined' ? _encodeHTML : ("
+      + doT.encodeHTMLSource.toString() + "(" + (c.doNotSkipEncoded || '') + "));"
+      + str;
+  }
+  try {
+    return new Function(c.varname, str);
+  } catch (e) {
+    /* istanbul ignore else */
+    if (typeof console !== "undefined") console.log("Could not create a template function: " + str);
+    throw e;
+  }
+};
+
+// ============================================================================
+// ============================================================================
+
+export class QElement {
+  /** @type {HTMLElement[]} */
+  #elements;
+
+  /**
+   * @param {HTMLElement[]} elements
+   */
+  constructor( elements ) {
+    this.#elements = elements;
+  }
+
+  /**
+   * @param {(e: HTMLElement, index: number) => any} func
+   */
+  #apply( func ) {
+    for ( let i = 0; i < this.#elements.length; i++ ) {
+      func(this.#elements[i], i);
+    }
+  }
+
+  /**
+   * @template T
+   * @param {(e: HTMLElement) => T} func
+   * @returns {T}
+   */
+  #get( func ) {
+    if ( this.#elements.length > 0 ) {
+      return func(this.#elements[0]);
+    }
+  }
+
+  /**
+   * @param {(e: HTMLElement, index: number) => void} callback
+   * @returns {QElement}
+   */
+  each( callback ) {
+    this.#apply((e, i) => callback(e, i));
+    return this;
+  }
+
+  /**
+   * @returns {?QElement}
+   */
+  first() {
+    if ( this.#elements.length > 0 ) {
+      return new QElement([this.#elements[0]]);
+    }
+    return null;
+  }
+
+  /**
+   * @returns {?QElement}
+   */
+  last() {
+    if ( this.#elements.length > 0 ) {
+      return new QElement([this.#elements[this.#elements.length - 1]]);
+    }
+    return null;
+  }
+
+  /**
+   * @param {number} index
+   * @returns {?QElement}
+   */
+  at( index ) {
+    if ( this.#elements.length >= index ) {
+      return new QElement([this.#elements[index]]);
+    }
+    return null;
+  }
+
+  /**
+   * @returns {QElement}
+   */
+  empty() {
+    this.#apply(e => e.innerHTML = '');
+    return this;
+  }
+
+  /**
+   * @param {string} [value]
+   * @returns {QElement|string}
+   */
+  val( value ) {
+    if ( !value ) {
+      return this.#get(e => e.value);
+    }
+    this.#apply(e => e.value = value);
+    return this;
+  }
+
+  /**
+   * @param {string|number|boolean} [value]
+   * @returns {QElement|string}
+   */
+  text( value ) {
+    if ( !value ) {
+      return this.#get(e => e.textContent);
+    }
+    this.#apply(e => e.textContent = value);
+    return this;
+  }
+
+  /**
+   * @param {string} [value]
+   * @returns {QElement|string}
+   */
+  html( value ) {
+    if ( !value ) {
+      return this.#get(e => e.innerHTML);
+    }
+    this.#apply(e => e.innerHTML = value);
+    return this;
+  }
+
+  /**
+   * @param {string} name
+   * @param {string} [value]
+   * @returns {QElement|string}
+   */
+  attr( name, value ) {
+    if ( !value ) {
+      return this.#get(e => e.getAttribute(name));
+    }
+    this.#apply(e => e.setAttribute(name, value));
+    return this;
+  }
+
+  /**
+   * @param {string} name
+   * @returns {QElement}
+   */
+  removeAttr( name ) {
+    this.#apply(e => e.removeAttribute(name));
+    return this;
+  }
+
+  /**
+   * @param {string} name
+   * @param {string} [value]
+   * @returns {QElement|string}
+   */
+  data( name, value ) {
+    if ( !value ) {
+      return this.#get(e => e.dataset[name]);
+    }
+    this.#apply(e => e.dataset[name] = value);
+    return this;
+  }
+
+  /**
+   * @param {string|string[]} values
+   * @returns {QElement}
+   */
+  addClass( values ) {
+    if ( !Array.isArray(values) ) {
+      values = [values];
+    }
+    this.#apply(e => e.classList.add(...values));
+    return this;
+  }
+
+  /**
+   * @param {string|string[]} values
+   * @returns {QElement}
+   */
+  removeClass( values ) {
+    if ( !Array.isArray(values) ) {
+      values = [values];
+    }
+    this.#apply(e => e.classList.remove(...values));
+    return this;
+  }
+
+  /**
+   * @param {string[]} values
+   * @returns {QElement}
+   */
+  toggleClass( ...values ) {
+    for ( let i = 0; i < values.length; i++ ) {
+      this.#get(e => e.classList.toggle(values[i]));
+    }
+    return this;
+  }
+
+  /**
+   * @returns {QElement}
+   */
+  show() {
+    this.#apply(e => {
+      if ( e.style.display === 'none' ) {
+        e.style.display = '';
+      }
+    });
+    return this;
+  }
+
+  /**
+   * @returns {QElement}
+   */
+  hide() {
+    this.#apply(e => {
+      if ( e.style.display !== 'none' ) {
+        e.style.display = 'none';
+      }
+    });
+    return this;
+  }
+
+  /**
+   * @returns {QElement}
+   */
+  toggle() {
+    this.#apply(e => {
+      if ( e.style.display === 'none' ) {
+        e.style.display = '';
+      } else {
+        e.style.display = 'none';
+      }
+    });
+    return this;
+  }
+
+  /**
+   * @param {GlobalEventHandlersEventMap} eventName
+   * @param {(e: Event) => void} callback
+   * @returns {QElement}
+   */
+  on( eventName, callback ) {
+    this.#apply(e => e.addEventListener(eventName, callback));
+    return this;
+  }
+
+  /**
+   * @param {string} eventName
+   * @returns {QElement}
+   */
+  off( eventName ) {
+    this.#apply(e => e.removeEventListener(eventName));
+    return this;
+  }
+
+  /**
+   * @param {string} eventName
+   * @returns {QElement}
+   */
+  trigger( eventName ) {
+    this.#apply(e => e.dispatchEvent(new Event(eventName)));
+    return this;
+  }
+
+  /**
+   * @returns {QElement}
+   */
+  parent() {
+    return new QElement([this.#get(e => e.parentElement)]);
+  }
+
+  /**
+   * @param {HTMLElement|string} content
+   * @returns {QElement}
+   */
+  prepend( content ) {
+    if ( content instanceof HTMLElement ) {
+      this.#apply(e => e.insertAdjacentElement('afterbegin', content));
+    } else {
+      this.#apply(e => e.insertAdjacentHTML('afterbegin', content));
+    }
+    return this;
+  }
+
+  /**
+   * @param {HTMLElement|string} content
+   * @returns {QElement}
+   */
+  append( content ) {
+    if ( content instanceof HTMLElement ) {
+      this.#apply(e => e.insertAdjacentElement('beforeend', content));
+    } else {
+      this.#apply(e => e.insertAdjacentHTML('beforeend', content));
+    }
+    return this;
+  }
+
+  /**
+   * @param {HTMLElement|string} content
+   * @returns {QElement}
+   */
+  before( content ) {
+    if ( content instanceof HTMLElement ) {
+      this.#apply(e => e.insertAdjacentElement('beforebegin', content));
+    } else {
+      this.#apply(e => e.insertAdjacentHTML('beforebegin', content));
+    }
+    return this;
+  }
+
+  /**
+   * @param {HTMLElement|string} content
+   * @returns {QElement}
+   */
+  after( content ) {
+    if ( content instanceof HTMLElement ) {
+      this.#apply(e => e.insertAdjacentElement('afterend', content));
+    } else {
+      this.#apply(e => e.insertAdjacentHTML('afterend', content));
+    }
+    return this;
+  }
+
+  /**
+   * @param {string} tagName
+   * @returns {QElement}
+   */
+  wrap( tagName ) {
+    this.#apply(e => {
+      const wrapper = document.createElement(tagName);
+      e.parentElement.insertBefore(wrapper, e);
+      wrapper.appendChild(e);
+    });
+    return this;
+  }
+}
