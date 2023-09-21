@@ -1,11 +1,16 @@
-import './dot.js';
-
 export class WebElement extends HTMLElement {
+  #renderRoot;
+  #internals;
+
   constructor() {
     super();
 
-    this._renderRoot = this.attachShadow({ mode: 'open' });
-    this._internals = this.attachInternals();
+    this.#renderRoot = this.attachShadow({ mode: 'open' });
+    this.#internals = this.attachInternals();
+  }
+
+  get root() {
+    return this.#renderRoot;
   }
 
   connectedCallback() {
@@ -18,9 +23,9 @@ export class WebElement extends HTMLElement {
   
       switch (type) {
         case '[object Function]':
-          if (val.name === 'r') {
-            acc += `data-ref="${val()}"`;
-          } else if (val.name === 'e') {
+          if (val().f === 'ref') {
+            acc += `data-ref="${val().id}"`;
+          } else if (val().f === 'event') {
             acc += `data-handler="${val().name},${val().handler.name}"`
           }
           break;
@@ -38,10 +43,12 @@ export class WebElement extends HTMLElement {
   
       return acc;
     }, '');
-  
-    this._renderRoot.innerHTML = doT.template(`<style>${this.styles()}</style>${templateMarkup}`, null, {})();
 
-    const refElements = this._renderRoot.querySelectorAll('[data-ref]');
+    this.#renderRoot.innerHTML = doT.template(
+      `<style>${this.styles()}</style>${templateMarkup}`, null, {}
+    )(Array.from(this.attributes).reduce((acc, val) => (acc[val.nodeName] = val.nodeValue, acc), {}));
+
+    const refElements = this.#renderRoot.querySelectorAll('[data-ref]');
 
     for (const element of refElements) {
       if (!Object.hasOwn(this, element.dataset.ref)) {
@@ -49,10 +56,10 @@ export class WebElement extends HTMLElement {
       }
 
       this[element.dataset.ref] = new QElement([element]);
-      element.removeAttribute('data-ref');
+      // element.removeAttribute('data-ref');
     }
 
-    const handlerElements = this._renderRoot.querySelectorAll('[data-handler]');
+    const handlerElements = this.#renderRoot.querySelectorAll('[data-handler]');
 
     for (const element of handlerElements) {
       const handlerInfo = element.dataset.handler.split(',');
@@ -62,7 +69,7 @@ export class WebElement extends HTMLElement {
       }
 
       element.addEventListener(handlerInfo[0], this.constructor.prototype[handlerInfo[1]].bind(this));
-      element.removeAttribute('data-handler');
+      // element.removeAttribute('data-handler');
     }
 
     this.firstRender();
@@ -80,14 +87,14 @@ export class WebElement extends HTMLElement {
 }
 
 export function ref(id) {
-  return function r() {
-    return id.toString()
+  return function() {
+    return { f: 'ref', id: id.toString() };
   };
 }
 
 export function event(name, handler) {
-  return function e() {
-    return { name, handler };
+  return function() {
+    return { f: 'event', name, handler };
   }
 }
 
