@@ -3,6 +3,7 @@
 //
 export const DL_SCOPE_ELEMENT = 0xF000;
 export const DL_APPEND_BUFFER = 0xF001;
+export const DL_DELEGATE_ELEMENT = 0xF002;
 
 //
 // dlGet States
@@ -11,24 +12,65 @@ export const DL_STACK_SIZE = 0xE000;
 export const DL_BUFFER_SIZE = 0xE001;
 export const DL_BUFFER_ELEMENTS = 0xE002;
 
+//
+// dlBindElement Targets
+//
+export const DL_SCOPE0 = 0xD000;
+export const DL_SCOPE1 = 0xD001;
+export const DL_SCOPE2 = 0xD002;
+
+export const DL_DELEGATE0 = 0xD010;
+export const DL_DELEGATE1 = 0xD011;
+export const DL_DELEGATE2 = 0xD012;
+
+
 const _STACK = [];
 
 let _STATE = {
     state: {
         scopeElement: false,
+        delegateElement: false,
         appendCollection: false
     },
+    activeScope: 0,
+    scopeElements: {},
     scopeElement: null,
+    activeDelegate: 0,
+    delegateElements: {},
     activeCollection: 0,
     collections: {}
 };
 
-function _getFirstFreeCollectionIndex() {
+function _firstFreeCollectionIndex() {
     let index = 1;
     while (_STATE.collections[index] !== undefined) {
         index++;
     }
     return index;
+}
+
+function _firstFreeScopeIndex() {
+    let index = 1;
+    while (_STATE.scopeElements[index] !== undefined) {
+        index++;
+    }
+    return index;
+}
+
+function _firstFreeDelegateIndex() {
+    let index = 1;
+    while (_STATE.delegateElements[index] !== undefined) {
+        index++;
+    }
+    return index;
+}
+
+function _currentDelegateSelector() {
+    return _STATE.delegateElements[_STATE.activeDelegate];
+}
+
+function _currentScopeSelector() {
+    return _STATE.scopeElements[_STATE.activeScope];
 }
 
 function _querySingleElement(selector) {
@@ -65,6 +107,30 @@ function _checkForActiveCollection() {
 }
 
 /**
+ * @param {number} target
+ * @returns {void}
+ */
+export function dlActiveDelegate(target) {
+    if (target > 0xD01F || target < 0xD010) {
+        throw new Error('No valid target given');
+    }
+
+    _STATE.activeDelegate = target - 0xD010;
+}
+
+/**
+ * @param {number} target
+ * @returns {void}
+ */
+export function dlActiveScope(target) {
+    if (target > 0xD00F || target < 0xD000) {
+        throw new Error('No valid target given');
+    }
+
+    _STATE.activeScope = target - 0xD000;
+}
+
+/**
  * @returns {void}
  */
 export function dlPushState() {
@@ -72,9 +138,14 @@ export function dlPushState() {
     _STATE = {
         state: {
             scopeElement: false,
+            delegateElement: false,
             appendCollection: false
         },
+        activeScope: 0,
+        scopeElements: {},
         scopeElement: null,
+        activeDelegate: 0,
+        delegateElements: {},
         activeCollection: 0,
         collections: {}
     };
@@ -98,7 +169,7 @@ export function dlPopState() {
  * @returns {number}
  */
 export function dlGenBuffer() {
-    const newIndex = _getFirstFreeCollectionIndex();
+    const newIndex = _firstFreeCollectionIndex();
     _STATE.collections[newIndex] = [];
     return newIndex;
 }
@@ -109,6 +180,14 @@ export function dlGenBuffer() {
  */
 export function dlBindBuffer(index) {
     _STATE.activeCollection = index;
+}
+
+/**
+ * @param {number} index
+ * @returns {boolean}
+ */
+export function dlIsBuffer(index) {
+    return _STATE.collections[index] !== undefined;
 }
 
 /**
@@ -136,11 +215,11 @@ export function dlGet(state) {
         return _STACK.length;
     }
 
-    if (state === DL_COLLECTION_SIZE) {
+    if (state === DL_BUFFER_SIZE) {
         return _STATE.collections[_STATE.activeCollection].length;
     }
 
-    if (state === DL_COLLECTION_ELEMENTS) {
+    if (state === DL_BUFFER_ELEMENTS) {
         return _STATE.collections[_STATE.activeCollection];
     }
 
@@ -176,10 +255,15 @@ export function dlDisable(state) {
 }
 
 /**
+ * @param {number} target
  * @param {string|0} selector
  * @returns {void}
  */
-export function dlBindScope(selector) {
+export function dlBindElement(target, selector) {
+    if (target > 0xDFFF || target < 0xD000) {
+        throw new Error('Invalid binding target');
+    }
+
     if (selector === 0 || selector == null) {
         _STATE.scopeElement = null;
         return;
@@ -348,16 +432,28 @@ export function dlRemoveAttribute(attribute) {
 }
 
 /**
- * @param {string} event
+ * @param {string} eventName
  * @param {(element: HTMLElement, index: number) => void} callback
  * @returns {void}
  */
-export function dlAttachEvent(event, callback) {
+export function dlEventFunc(eventName, callback) {
     _checkForActiveCollection();
 
     let index = 0;
+
+    if (_STATE.state.delegateElement) {
+        for (const element of _STATE.collections[_STATE.activeCollection]) {
+            element.addEventListener(eventName, function(event) {
+                let delegateElement = null;
+                if ((delegateElement = event.target.closest(_STATE.delegateElements[_STATE.activeDelegate])) !== null) {
+                    callback.call(delegateElement, delegateElement, index++);
+                }
+            });
+        }
+    }
+
     for (const element of _STATE.collections[_STATE.activeCollection]) {
-        element.addEventListener(event, function() {
+        element.addEventListener(eventName, function() {
             callback.call(element, element, index++);
         });
     }
