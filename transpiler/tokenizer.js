@@ -6,10 +6,11 @@
 
 export default class Scanner {
   static #KEYWORDS = [
-    'nothing',
-    'function', 'endfunction',
+    'nothing', 'null', 'string', 'integer', 'real', 'boolean', 'object',
+    'function', 'endfunction', 'await',
     'takes', 'returns',
-    'local', 'mut', 'set', 'return',
+    'do', 'enddo',
+    'local', 'const', 'set', 'return',
     'if', 'then', 'else', 'elseif', 'endif',
     'loop', 'exitwhen', 'endloop',
     'call'
@@ -23,7 +24,7 @@ export default class Scanner {
   }
 
   #isAlphaNumeric(str) {
-    return /[A-Za-z0-9]+/iu.test(str);
+    return /[A-Za-z0-9_]+/iu.test(str);
   }
 
   #isKeyword(str) {
@@ -54,6 +55,23 @@ export default class Scanner {
       token = token.trim();
 
       const peek = str[index + 1];
+
+      if (token === '"') {
+        let strValue = '"';
+        index++;
+
+        while (str[index] !== '"') {
+          strValue += str[index];
+          index++;
+        }
+
+        strValue += str[index];
+
+        this.#tokens.push({ type: 'STRING', value: strValue });
+
+        token = '';
+        continue;
+      }
 
       if (this.#isNumber(token) && !this.#isNumber(peek)) {
         this.#tokens.push({ type: 'NUMBER', value: token });
