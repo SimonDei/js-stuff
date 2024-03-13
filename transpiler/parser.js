@@ -1,9 +1,13 @@
+import * as fs from 'fs';
+import * as util from 'util';
+
 /**
  * @typedef FunctionDeclaration
  * @property {string} [type='FunctionDeclaration']
  * @property {string} name
  * @property {string[]} parameters
  * @property {?string} returns
+ * @property {boolean} async
  * @property {any[]} body
  * @property {any} parent
  */
@@ -13,7 +17,8 @@
  * @property {string} [type='VariableDeclaration']
  * @property {string} name
  * @property {boolean} mutable
- * @property {?string} value
+ * @property {any[]} body
+ * @property {any} parent
  */
 
 /**
@@ -28,8 +33,10 @@ export default class Parser {
   #tokens = [];
   #index = 0;
   #expr = [];
-  /** @type {any[] | ({ [key: string]: any } & { body: any[] })} */
+  /** @type {any[] | (any & { body: any[], parent: any[] })} */
   #targetExpr = [];
+  #currentFunction = undefined;
+  #attempt = 5;
   
   /**
    * @param {import('./tokenizer').Token[]} tokens 
@@ -83,14 +90,20 @@ export default class Parser {
     const variableDecl = {
       type: 'VariableDeclaration',
       name: '',
-      mutable: false,
-      value: undefined
+      mutable: true,
+      varType: '',
+      body: [],
+      parent: this.#targetExpr
     }
 
-    if (this.#peekType === 'KEYWORD' && this.#peekValue.toLowerCase() === 'mut') {
+    if (this.#peekType === 'KEYWORD' && this.#peekValue.toLowerCase() === 'const') {
       this.#advance();
-      variableDecl.mutable = true;
+      variableDecl.mutable = false;
     }
+
+    this.#advance();
+
+    variableDecl.varType = this.#currentValue;
 
     this.#advance();
 
@@ -98,7 +111,12 @@ export default class Parser {
 
     if (this.#peek().type === 'OPERATOR' && this.#peek().value?.toLowerCase() === '=') {
       this.#advance(2);
-      variableDecl.value = this.#currentValue;
+
+      this.#targetExpr = variableDecl;
+
+      this.parse('EOL');
+
+      this.#targetExpr = variableDecl.parent;
     }
 
     this.#advance();
@@ -117,14 +135,23 @@ export default class Parser {
       body: [],
       parameters: [],
       returns: undefined,
+      async: false,
       parent: this.#targetExpr
     };
 
+    this.#currentFunction = functionDecl;
+
     this.#advance();
 
-    functionDecl.name = this.#currentValue;
-
-    this.#advance(2);
+    if (this.#currentType === 'KEYWORD' && this.#currentValue.toLowerCase() === 'takes') {
+      this.#advance();
+    } else if (this.#currentType === 'IDENTIFIER' && this.#peekType === 'KEYWORD' && this.#peekValue.toLowerCase() === 'takes') {
+      functionDecl.name = this.#currentValue;
+      this.#advance(2);
+    } else {
+      this.#functionReference();
+      return;
+    }
 
     functionDecl.parameters = this.#functionParameterDeclaration();
 
@@ -143,10 +170,11 @@ export default class Parser {
     this.#targetExpr = functionDecl.parent;
 
     this.#pushDecl(functionDecl);
+
+    this.#currentFunction = undefined;
   }
 
   #functionParameterDeclaration() {
-    /** @type {string[]} */
     const parameters = [];
 
     while (this.#peek().type !== 'KEYWORD' && this.#peek().value?.toLowerCase() !== 'returns') {
@@ -163,11 +191,41 @@ export default class Parser {
   // ===========================================================================
   // ===========================================================================
 
+  #doExpression() {
+    const doExpression = {
+      type: 'DoExpression',
+      async: false,
+      body: [],
+      parent: this.#targetExpr
+    };
+
+    const prevCurrentFunction = this.#currentFunction;
+    this.#currentFunction = doExpression;
+
+    this.#advance();
+
+    this.#targetExpr = doExpression;
+
+    this.parse('KEYWORD', 'enddo');
+
+    this.#advance();
+
+    this.#targetExpr = doExpression.parent;
+
+    this.#pushDecl(doExpression);
+
+    this.#currentFunction = prevCurrentFunction;
+  }
+
+  // ===========================================================================
+  // ===========================================================================
+
   #setExpression() {
     const setExpression = {
       type: 'SetExpression',
       name: '',
-      value: ''
+      body: [],
+      parent: this.#targetExpr
     };
 
     this.#advance();
@@ -176,13 +234,14 @@ export default class Parser {
 
     this.#advance(2);
 
-    setExpression.value = this.#currentValue;
+    this.#targetExpr = setExpression;
 
-    console.log(this.#currentType, this.#currentValue)
+    this.parse('EOL');
+
+    this.#targetExpr = setExpression.parent;
 
     this.#advance();
 
-    console.log(this.#currentType, this.#currentValue)
     this.#pushDecl(setExpression);
   }
 
@@ -210,7 +269,7 @@ export default class Parser {
   #ifStatement() {
     const ifStatement = {
       type: 'IfStatement',
-      test: '',
+      test: [],
       then: [],
       else: undefined,
       parent: this.#targetExpr
@@ -218,12 +277,20 @@ export default class Parser {
 
     this.#advance();
 
+    this.#targetExpr = ifStatement.test;
+
+    this.parse('KEYWORD', 'then');
+
+    this.#targetExpr = ifStatement.parent;
+
+    /*
     while (this.#peekType !== 'KEYWORD' || this.#peekValue !== 'then') {
       ifStatement.test += this.#currentValue + ' ';
       this.#advance();
     }
 
     ifStatement.test += this.#currentValue;
+     */
 
     this.#advance(2);
 
@@ -250,19 +317,38 @@ export default class Parser {
   // ===========================================================================
   // ===========================================================================
 
-  #callExpression() {
+  #callExpression(nested = false) {
     const callExpression = {
       type: 'CallExpression',
       name: '',
-      parameters: []
+      async: false,
+      body: [],
+      parent: this.#targetExpr
     };
 
-    this.#advance();
+    if (!nested) {
+      this.#advance();
+    }
+
+    if (this.#currentType === 'KEYWORD' && this.#currentValue.toLowerCase() === 'await') {
+      callExpression.async = true;
+      if (this.#currentFunction) {
+        this.#currentFunction.async = true;
+      }
+      this.#advance();
+    }
 
     callExpression.name = this.#currentValue;
 
     this.#advance(2);
 
+    this.#targetExpr = callExpression;
+
+    this.parse('RPAREN');
+
+    this.#targetExpr = callExpression.parent;
+
+    /*
     while (this.#currentType !== 'RPAREN') {
       if (this.#currentType === 'OPERATOR' && this.#currentValue === ',') {
         this.#advance();
@@ -277,6 +363,7 @@ export default class Parser {
       callExpression.parameters.push(this.#staticValue());
       this.#advance();
     }
+    */
 
     this.#advance();
 
@@ -306,13 +393,13 @@ export default class Parser {
       name: ''
     };
 
-    this.#advance();
+    // this.#advance();
 
     functionReference.name = this.#currentValue;
 
     this.#advance();
 
-    return functionReference;
+    this.#pushDecl(functionReference);
   }
 
   // ===========================================================================
@@ -343,8 +430,23 @@ export default class Parser {
   // ===========================================================================
 
   #exitwhenExpression() {
+    const exitwhenExpression = {
+      type: 'ExitwhenExpression',
+      body: [],
+      parent: this.#targetExpr
+    };
+
     this.#advance();
 
+    this.#targetExpr = exitwhenExpression;
+
+    this.parse('EOL');
+
+    this.#targetExpr = exitwhenExpression.parent;
+
+    this.#targetExpr.exitwhen = exitwhenExpression;
+
+    /*
     let test = '';
     while (this.#peekType !== 'EOL') {
       test += this.#currentValue + ' ';
@@ -356,17 +458,100 @@ export default class Parser {
     this.#advance();
 
     this.#targetExpr.exitwhen = test;
+     */
+  }
+
+  // ===========================================================================
+  // ===========================================================================
+
+  #number() {
+    const number = {
+      type: 'Number',
+      value: ''
+    };
+
+    number.value = this.#currentValue;
+
+    this.#advance();
+
+    this.#pushDecl(number);
+  }
+
+  #operator() {
+    if (this.#currentValue === '//') {
+      const comment = {
+        type: 'Comment',
+        body: []
+      };
+
+      this.#advance();
+
+      const prevTargetExpr = this.#targetExpr;
+      this.#targetExpr = comment;
+
+      this.parse('EOL');
+
+      this.#targetExpr = prevTargetExpr;
+
+      this.#pushDecl(comment);
+
+      return;
+    }
+
+    const operator = {
+      type: 'Operator',
+      value: ''
+    };
+
+    operator.value = this.#currentValue;
+
+    this.#advance();
+
+    this.#pushDecl(operator);
+  }
+
+  #identifier() {
+    const identifier = {
+      type: 'Identifier',
+      value: ''
+    };
+
+    if (this.#peekType === 'LPAREN') {
+      this.#callExpression(true);
+      return;
+    }
+
+    identifier.value = this.#currentValue;
+
+    this.#advance();
+
+    this.#pushDecl(identifier);
+  }
+
+  #string() {
+    const string = {
+      type: 'String',
+      value: ''
+    };
+
+    string.value = this.#currentValue;
+
+    this.#advance();
+
+    this.#pushDecl(string);
   }
 
   // ===========================================================================
   // ===========================================================================
 
   #keyword() {
-    console.log(this.#currentType, this.#currentValue)
-
     switch (this.#currentValue.toLowerCase()) {
       case 'function':
         this.#functionDeclaration();
+        break;
+
+      case 'do':
+        this.#doExpression();
         break;
       
       case 'local':
@@ -401,6 +586,12 @@ export default class Parser {
 
   parse(endType = 'EOF', endValue = undefined, skipEol = true) {
     while (this.#currentType !== endType || (Array.isArray(endValue) ? !endValue.includes(this.#currentValue?.toLocaleLowerCase()) : this.#currentValue?.toLowerCase() !== endValue)) {
+      console.log(this.#currentType, this.#currentValue);
+
+      if (this.#attempt <= 0) {
+        return;
+      }
+
       if (skipEol && this.#currentType === 'EOL') {
         this.#advance();
         continue;
@@ -410,6 +601,25 @@ export default class Parser {
         case 'KEYWORD':
           this.#keyword();
           break;
+
+        case 'NUMBER':
+          this.#number();
+          break;
+
+        case 'OPERATOR':
+          this.#operator();
+          break;
+
+        case 'IDENTIFIER':
+          this.#identifier();
+          break;
+
+        case 'STRING':
+          this.#string();
+          break;
+
+        default:
+          this.#attempt--;
       }
     }
 
@@ -418,5 +628,9 @@ export default class Parser {
       endType: this.#currentType,
       endValue: this.#currentValue
     };
+  }
+
+  writeAst() {
+    fs.writeFileSync('./ast.txt', util.inspect(this.#targetExpr, false, 1000), { encoding: 'utf-8' });
   }
 }
