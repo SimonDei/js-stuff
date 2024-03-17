@@ -3,10 +3,13 @@
  * @property {string} type
  * @property {string} [value]
  */
+import fs from "fs";
+import util from "util";
 
 export default class Scanner {
   static #KEYWORDS = [
     'nothing', 'null', 'string', 'integer', 'real', 'boolean', 'object',
+    'globals', 'endglobals',
     'function', 'endfunction', 'await',
     'takes', 'returns',
     'do', 'enddo',
@@ -20,11 +23,11 @@ export default class Scanner {
   #tokens = [];
 
   #isNumber(str) {
-    return /[0-9]+/iu.test(str);
+    return /^\d+$/.test(str);
   }
 
   #isAlphaNumeric(str) {
-    return /[A-Za-z0-9_]+/iu.test(str);
+    return /[A-Za-z0-9_]+/.test(str);
   }
 
   #isKeyword(str) {
@@ -32,7 +35,7 @@ export default class Scanner {
   }
 
   #isOperator(str) {
-    return /[+*\/-=.,<>]+/iu.test(str);
+    return /^[+*\/-=.,<>]+$/.test(str);
   }
 
   /**
@@ -119,5 +122,9 @@ export default class Scanner {
     this.#tokens.push({ type: 'EOF' });
 
     return this.#tokens;
+  }
+
+  writeTokens() {
+    fs.writeFileSync('./tokens.txt', this.#tokens.reduce((acc, tok) => acc + `{ type: '${tok.type}'${tok.value ? `, value: '${tok.value }'` : ''} },\n`, ''), { encoding: 'utf-8' });
   }
 }
