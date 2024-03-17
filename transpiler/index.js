@@ -10,6 +10,7 @@ const scanner = new Scanner();
 const tokens = scanner.tokenize(code);
 
 console.log(tokens);
+scanner.writeTokens();
 
 const parser = new Parser(tokens);
 const { ast } = parser.parse('EOF');
