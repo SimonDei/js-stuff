@@ -1,0 +1,41 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+
+  <title>Title</title>
+</head>
+<body style="background-color: #222; color: #f0f0f0; margin: 3rem; padding: 0; height: calc(100vh - 6rem); width: calc(100% - 6rem);">
+  <span id="count">0</span>
+
+  <button id="add">+</button>
+  <button id="sub">-</button>
+
+  <script type="text/basescript">
+    local element counter = call QuerySelector("#count")
+
+    function add takes nothing returns nothing
+      local string count = call GetText(counter)
+      set count = call S2I(count) + 1
+      call SetText(counter, count)
+    endfunction
+
+    function sub takes nothing returns nothing
+      local string count = call GetText(counter)
+      set count = call S2I(count) - 1
+
+      if count < 0 then
+        call Alert("Counter wuerde unter 0 fallen.")
+        return
+      endif
+
+      call SetText(counter, count)
+    endfunction
+
+    call OnClick("#add", function add)
+    call OnClick("#sub", function sub)
+  </script>
+
+  <script type="text/javascript" src="./browser/basescript.min.js"></script>
+</body>
+</html>
