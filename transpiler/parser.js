@@ -85,6 +85,29 @@ export default class Parser {
   // ===========================================================================
   // ===========================================================================
 
+  #globalsDeclaration() {
+    const globalDeclaration = {
+      type: 'GlobalsDeclaration',
+      body: [],
+      parent: this.#targetExpr
+    };
+
+    this.#advance();
+
+    this.#targetExpr = globalDeclaration;
+
+    this.parse('KEYWORD', 'endglobals');
+
+    this.#targetExpr = globalDeclaration.parent;
+
+    this.#advance();
+
+    this.#pushDecl(globalDeclaration);
+  }
+
+  // ===========================================================================
+  // ===========================================================================
+
   #variableDeclaration() {
     /** @type {VariableDeclaration} */
     const variableDecl = {
@@ -546,6 +569,10 @@ export default class Parser {
 
   #keyword() {
     switch (this.#currentValue.toLowerCase()) {
+      case 'globals':
+        this.#globalsDeclaration();
+        break;
+
       case 'function':
         this.#functionDeclaration();
         break;
@@ -586,8 +613,6 @@ export default class Parser {
 
   parse(endType = 'EOF', endValue = undefined, skipEol = true) {
     while (this.#currentType !== endType || (Array.isArray(endValue) ? !endValue.includes(this.#currentValue?.toLocaleLowerCase()) : this.#currentValue?.toLowerCase() !== endValue)) {
-      console.log(this.#currentType, this.#currentValue);
-
       if (this.#attempt <= 0) {
         return;
       }
