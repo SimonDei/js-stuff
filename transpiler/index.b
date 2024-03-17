@@ -1,3 +1,7 @@
+globals
+
+endglobals
+
 function copyLinkHandler takes integer age returns nothing
   local string canDrive = do
     if age >= 18 then
@@ -28,3 +32,11 @@ call OnClick(copyLink, function takes nothing returns nothing
 endfunction)
 
 call OnClick(copyLink, function copyLinkHandler)
+
+local object counter = call QuerySelector("#count")
+
+call OnClick("#add", function takes nothing returns nothing
+  local string count = call GetText(counter)
+  set count = call S2I(count)
+
+endfunction)
