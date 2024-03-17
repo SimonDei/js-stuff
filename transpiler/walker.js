@@ -30,6 +30,10 @@ export default class Walker {
     }
   }
 
+  globalsDeclaration() {
+
+  }
+
   functionDeclaration() {
     if (this.#allowSpaces) {
       this.#addSpaces();
@@ -362,7 +366,11 @@ export default class Walker {
   }
 
   comment() {
+    if (this.#allowSpaces) {
+      this.#addSpaces();
+    }
 
+    this.#source += `// ${this.#targetExpr.body.map(e => e.value ?? '').join(' ')}\n`;
   }
 
   walk() {
