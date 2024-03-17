@@ -1,5 +1,37 @@
 const StdDecls = {};
 
+StdDecls.ToInteger = function(value) {
+  return Number.parseInt(value);
+};
+
+StdDecls.ToFloat = function(value) {
+  return Number.parseFloat(value);
+};
+
+StdDecls.ToString = function(value) {
+  return value?.toString() ?? '';
+};
+
+StdDecls.ToBoolean = function(value) {
+  return Boolean(value);
+};
+
+StdDecls.I2S = function(value) {
+  return value.toString();
+};
+
+StdDecls.S2I = function(value) {
+  return Number.parseInt(value);
+};
+
+StdDecls.SubString = function(value, start, end) {
+  return value.substring(start, end);
+};
+
+StdDecls.StringLength = function(value) {
+  return value.length;
+};
+
 StdDecls.Assert = function(test, message) {
   if (!test) {
     throw new Error(message);
@@ -18,7 +50,7 @@ StdDecls.Find = function(needle, haystack) {
   return haystack.find(e => e === needle);
 };
 
-StdDecls.Type = function(value) {
+StdDecls.TypeOf = function(value) {
   return Object.prototype.toString.call(value);
 };
 
@@ -137,12 +169,19 @@ StdDecls.QuerySelectorAll = function(selector, context = document) {
 };
 
 StdDecls.SetAttr = function(element, name, value) {
-  [element].flat().forEach(e => {
+  if (typeof element === 'string') {
+    element = Array.from(document.querySelectorAll(element));
+  }
+  const flatElements = [element].flat();
+  for (const e of flatElements) {
     e.setAttribute(name, value);
-  });
+  }
 };
 
 StdDecls.GetAttr = function(element, name) {
+  if (typeof element === 'string') {
+    element = Array.from(document.querySelectorAll(element));
+  }
   if (Array.isArray(element)) {
     return element[0].getAttribute(name);
   }
@@ -150,12 +189,19 @@ StdDecls.GetAttr = function(element, name) {
 };
 
 StdDecls.SetProp = function(element, name, value) {
-  [element].flat().forEach(e => {
+  if (typeof element === 'string') {
+    element = Array.from(document.querySelectorAll(element));
+  }
+  const flatElements = [element].flat();
+  for (const e of flatElements) {
     e[name] = value;
-  });
+  }
 };
 
 StdDecls.GetProp = function(element, name) {
+  if (typeof element === 'string') {
+    element = Array.from(document.querySelectorAll(element));
+  }
   if (Array.isArray(element)) {
     return element[0][name];
   }
@@ -163,12 +209,19 @@ StdDecls.GetProp = function(element, name) {
 };
 
 StdDecls.SetHtml = function(element, html) {
-  [element].flat().forEach(e => {
+  if (typeof element === 'string') {
+    element = Array.from(document.querySelectorAll(element));
+  }
+  const flatElements = [element].flat();
+  for (const e of flatElements) {
     e.innerHTML = html;
-  });
+  }
 };
 
 StdDecls.GetHtml = function(element) {
+  if (typeof element === 'string') {
+    element = Array.from(document.querySelectorAll(element));
+  }
   if (Array.isArray(element)) {
     return element[0].innerHTML;
   }
@@ -176,12 +229,19 @@ StdDecls.GetHtml = function(element) {
 };
 
 StdDecls.SetText = function(element, text) {
-  [element].flat().forEach(e => {
+  if (typeof element === 'string') {
+    element = Array.from(document.querySelectorAll(element));
+  }
+  const flatElements = [element].flat();
+  for (const e of flatElements) {
     e.textContent = text;
-  });
+  }
 };
 
 StdDecls.GetText = function(element) {
+  if (typeof element === 'string') {
+    element = Array.from(document.querySelectorAll(element));
+  }
   if (Array.isArray(element)) {
     return element[0].textContent;
   }
@@ -189,10 +249,16 @@ StdDecls.GetText = function(element) {
 };
 
 StdDecls.Siblings = function(element) {
+  if (typeof element === 'string') {
+    element = document.querySelector(element);
+  }
   return [...element.parentNode.children].filter(e => e !== element);
 };
 
 StdDecls.HasClass = function(element, classes) {
+  if (typeof element === 'string') {
+    element = Array.from(document.querySelectorAll(element));
+  }
   if (Array.isArray(element)) {
     return element[0].classList.contains(classes);
   }
@@ -200,43 +266,67 @@ StdDecls.HasClass = function(element, classes) {
 };
 
 StdDecls.AddClass = function(element, classes) {
-  [element].flat().forEach(e => {
+  if (typeof element === 'string') {
+    element = Array.from(document.querySelectorAll(element));
+  }
+  const flatElements = [element].flat();
+  for (const e of flatElements) {
     e.classList.add(...classes);
-  });
+  }
 };
 
 StdDecls.RemoveClass = function(element, classes) {
-  [element].flat().forEach(e => {
+  if (typeof element === 'string') {
+    element = Array.from(document.querySelectorAll(element));
+  }
+  const flatElements = [element].flat();
+  for (const e of flatElements) {
     e.classList.remove(...classes);
-  });
+  }
 };
 
 StdDecls.ToggleClass = function(element, classes) {
-  [element].flat().forEach(e => {
+  if (typeof element === 'string') {
+    element = Array.from(document.querySelectorAll(element));
+  }
+  const flatElements = [element].flat();
+  for (const e of flatElements) {
     e.classList.toggle(classes);
-  });
+  }
 };
 
 StdDecls.On = function(element, eventName, callback) {
-  [element].flat().forEach(e => {
+  if (typeof element === 'string') {
+    element = Array.from(document.querySelectorAll(element));
+  }
+  const flatElements = [element].flat();
+  for (const e of flatElements) {
     e.addEventListener(eventName, callback);
-  });
+  }
 };
 
 StdDecls.OnClick = function(element, callback) {
-  [element].flat().forEach(e => {
+  if (typeof element === 'string') {
+    element = Array.from(document.querySelectorAll(element));
+  }
+  const flatElements = [element].flat();
+  for (const e of flatElements) {
     e.addEventListener('click', callback);
-  });
+  }
 };
 
 StdDecls.Delegate = function(element, selector, eventName, callback) {
-  [element].flat().forEach(e => {
+  if (typeof element === 'string') {
+    element = Array.from(document.querySelectorAll(element));
+  }
+  const flatElements = [element].flat();
+  for (const e of flatElements) {
     e.addEventListener(eventName, event => {
       if (event.target.closest(selector)) {
         callback.call(event.target, event);
       }
     });
-  });
+  }
 };
 
 export default StdDecls;
