@@ -1,5 +1,19 @@
 const StdDecls = {};
 
+// ========================================================================================
+// Universal Functions
+// ========================================================================================
+
+StdDecls.Assert = function(test, message) {
+  if (!test) {
+    throw new Error(message);
+  }
+};
+
+StdDecls.TypeOf = function(value) {
+  return Object.prototype.toString.call(value);
+};
+
 StdDecls.ToInteger = function(value) {
   return Number.parseInt(value);
 };
@@ -24,39 +38,53 @@ StdDecls.S2I = function(value) {
   return Number.parseInt(value);
 };
 
+StdDecls.Print = function(message) {
+  console.log(message);
+};
+
+StdDecls.Log = function(value) {
+  console.log(value);
+};
+
+StdDecls.Info = function(value) {
+  console.info(value)
+};
+
+StdDecls.Length = function(value) {
+  return value?.length ?? 0;
+};
+
+StdDecls.At = function(array, index) {
+  return array[index];
+};
+
+StdDecls.Pairs = function(object) {
+  return Object.entries(object);
+};
+
+// ========================================================================================
+// String Functions
+// ========================================================================================
+
+StdDecls.Upper = function(value) {
+  return value.toUpperCase();
+};
+
+StdDecls.Lower = function(value) {
+  return value.toLowerCase();
+};
+
 StdDecls.SubString = function(value, start, end) {
   return value.substring(start, end);
-};
-
-StdDecls.StringLength = function(value) {
-  return value.length;
-};
-
-StdDecls.Assert = function(test, message) {
-  if (!test) {
-    throw new Error(message);
-  }
-};
-
-StdDecls.Byte = function(value) {
-  return new TextEncoder().encode(value);
 };
 
 StdDecls.Char = function(value) {
   return value.charCodeAt(0);
 };
 
-StdDecls.Find = function(needle, haystack) {
-  return haystack.find(e => e === needle);
-};
-
-StdDecls.TypeOf = function(value) {
-  return Object.prototype.toString.call(value);
-};
-
-StdDecls.Pairs = function(object) {
-  return Object.entries(object);
-};
+// ========================================================================================
+// Math Functions
+// ========================================================================================
 
 StdDecls.Add = function(a, b) {
   return a + b;
@@ -78,42 +106,52 @@ StdDecls.Pow = function(a, b) {
   return Math.pow(a, b);
 };
 
-StdDecls.Print = function(message) {
-  console.log(message);
+StdDecls.Floor = function(value) {
+  return Math.floor(value);
 };
 
-StdDecls.Log = function(value) {
-  console.log(value);
+StdDecls.Round = function(value) {
+  return Math.round(value);
 };
 
-StdDecls.Info = function(value) {
-  console.info(value)
+StdDecls.Random = function(min = 0, max = 1) {
+  return (Math.random() * max) + min;
 };
+
+StdDecls.RandomInt = function(min = 0, max = 1) {
+  return Math.floor(Math.random() * max) + min;
+};
+
+// ========================================================================================
+// Array Functions
+// ========================================================================================
 
 StdDecls.Array = function(...values) {
   return [...values];
 };
 
-StdDecls.Length = function(value) {
-  return value?.length ?? 0;
-};
-
-StdDecls.At = function(array, index) {
-  return array[index];
-};
-
-StdDecls.Upper = function(value) {
-  return value.toUpperCase();
-};
-
-StdDecls.Lower = function(value) {
-  return value.toLowerCase();
+StdDecls.Each = function(array, func) {
+  for (const item of array) {
+    func(item);
+  }
 };
 
 StdDecls.ForEach = function(array, func) {
   for (const item of array) {
     func(item);
   }
+};
+
+StdDecls.Find = function(needle, haystack) {
+  return haystack.find(e => e === needle);
+};
+
+StdDecls.Compact = function(array) {
+  return array.filter(Boolean);
+};
+
+StdDecls.Concat = function(array1, array2) {
+  return [...array1, ...array2];
 };
 
 // ========================================================================================
@@ -160,6 +198,14 @@ StdDecls.FetchText = async function(url) {
 // DOM Functions
 // ========================================================================================
 
+StdDecls.OnReady = function(func) {
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', func);
+  } else {
+    func();
+  }
+};
+
 StdDecls.QuerySelector = function(selector, context = document) {
   return context.querySelector(selector);
 };
@@ -168,7 +214,7 @@ StdDecls.QuerySelectorAll = function(selector, context = document) {
   return Array.from(context.querySelectorAll(selector));
 };
 
-StdDecls.SetAttr = function(element, name, value) {
+StdDecls.SetAttribute = function(element, name, value) {
   if (typeof element === 'string') {
     element = Array.from(document.querySelectorAll(element));
   }
@@ -178,7 +224,7 @@ StdDecls.SetAttr = function(element, name, value) {
   }
 };
 
-StdDecls.GetAttr = function(element, name) {
+StdDecls.GetAttribute = function(element, name) {
   if (typeof element === 'string') {
     element = Array.from(document.querySelectorAll(element));
   }
@@ -188,7 +234,7 @@ StdDecls.GetAttr = function(element, name) {
   return element.getAttribute(name);
 };
 
-StdDecls.SetProp = function(element, name, value) {
+StdDecls.SetProperty = function(element, name, value) {
   if (typeof element === 'string') {
     element = Array.from(document.querySelectorAll(element));
   }
@@ -198,7 +244,7 @@ StdDecls.SetProp = function(element, name, value) {
   }
 };
 
-StdDecls.GetProp = function(element, name) {
+StdDecls.GetProperty = function(element, name) {
   if (typeof element === 'string') {
     element = Array.from(document.querySelectorAll(element));
   }
@@ -248,6 +294,26 @@ StdDecls.GetText = function(element) {
   return element.textContent;
 };
 
+StdDecls.SetValue = function(element, value) {
+  if (typeof element === 'string') {
+    element = Array.from(document.querySelectorAll(element));
+  }
+  const flatElements = [element].flat();
+  for (const e of flatElements) {
+    e.value = value;
+  }
+};
+
+StdDecls.GetValue = function(element) {
+  if (typeof element === 'string') {
+    element = Array.from(document.querySelectorAll(element));
+  }
+  if (Array.isArray(element)) {
+    return element[0].value;
+  }
+  return element.value;
+};
+
 StdDecls.Siblings = function(element) {
   if (typeof element === 'string') {
     element = document.querySelector(element);
@@ -271,7 +337,7 @@ StdDecls.AddClass = function(element, classes) {
   }
   const flatElements = [element].flat();
   for (const e of flatElements) {
-    e.classList.add(...classes);
+    e.classList.add(...[classes].flat());
   }
 };
 
@@ -281,7 +347,7 @@ StdDecls.RemoveClass = function(element, classes) {
   }
   const flatElements = [element].flat();
   for (const e of flatElements) {
-    e.classList.remove(...classes);
+    e.classList.remove(...[classes].flat());
   }
 };
 
@@ -312,6 +378,36 @@ StdDecls.OnClick = function(element, callback) {
   const flatElements = [element].flat();
   for (const e of flatElements) {
     e.addEventListener('click', callback);
+  }
+};
+
+StdDecls.OnBlur = function(element, callback) {
+  if (typeof element === 'string') {
+    element = Array.from(document.querySelectorAll(element));
+  }
+  const flatElements = [element].flat();
+  for (const e of flatElements) {
+    e.addEventListener('blur', callback);
+  }
+};
+
+StdDecls.OnChange = function(element, callback) {
+  if (typeof element === 'string') {
+    element = Array.from(document.querySelectorAll(element));
+  }
+  const flatElements = [element].flat();
+  for (const e of flatElements) {
+    e.addEventListener('change', callback);
+  }
+};
+
+StdDecls.OnLoad = function(element, callback) {
+  if (typeof element === 'string') {
+    element = Array.from(document.querySelectorAll(element));
+  }
+  const flatElements = [element].flat();
+  for (const e of flatElements) {
+    e.addEventListener('load', callback);
   }
 };
 
