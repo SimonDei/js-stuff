@@ -1,6 +1,3 @@
-import * as fs from 'fs';
-import * as util from 'util';
-
 /**
  * @typedef FunctionDeclaration
  * @property {string} [type='FunctionDeclaration']
@@ -29,6 +26,14 @@ import * as util from 'util';
  */
 
 export default class Parser {
+  static #NATIVE_TYPES = {
+    'nothing': 'void',
+    'real': 'number',
+    'integer': 'number',
+    'string': 'string',
+    'boolean': 'boolean'
+  };
+
   /** @type {import('./tokenizer').Token[]} */
   #tokens = [];
   #index = 0;
@@ -36,14 +41,21 @@ export default class Parser {
   /** @type {any[] | (any & { body: any[], parent: any[] })} */
   #targetExpr = [];
   #currentFunction = undefined;
+  #nestedCallExpr = false;
+  #nestedCallNameExpr = false;
   #attempt = 5;
-  
+
   /**
    * @param {import('./tokenizer').Token[]} tokens 
    */
   constructor(tokens) {
     this.#tokens = tokens;
     this.#targetExpr = this.#expr;
+  }
+
+  reset(tokens) {
+    this.#tokens = tokens;
+    this.#targetExpr = [];
   }
 
   #advance(amount = 1) {
@@ -96,7 +108,7 @@ export default class Parser {
 
     this.#targetExpr = globalDeclaration;
 
-    this.parse('KEYWORD', 'endglobals');
+    this.parse('KEYWORD', 'end');
 
     this.#targetExpr = globalDeclaration.parent;
 
@@ -113,22 +125,18 @@ export default class Parser {
     const variableDecl = {
       type: 'VariableDeclaration',
       name: '',
-      mutable: true,
       varType: '',
       body: [],
       parent: this.#targetExpr
     }
 
-    if (this.#peekType === 'KEYWORD' && this.#peekValue.toLowerCase() === 'const') {
+    if (this.#targetExpr.type !== 'GlobalsDeclaration') {
       this.#advance();
-      variableDecl.mutable = false;
     }
 
-    this.#advance();
+    // variableDecl.varType = this.#currentValue;
 
-    variableDecl.varType = this.#currentValue;
-
-    this.#advance();
+    // this.#advance();
 
     variableDecl.name = this.#currentValue;
 
@@ -150,6 +158,41 @@ export default class Parser {
   // ===========================================================================
   // ===========================================================================
 
+  #constantDeclaration() {
+    const constantDecl = {
+      type: 'ConstantDeclaration',
+      name: '',
+      varType: '',
+      body: [],
+      parent: this.#targetExpr
+    }
+
+    this.#advance();
+
+    // constantDecl.varType = this.#currentValue;
+
+    // this.#advance();
+
+    constantDecl.name = this.#currentValue;
+
+    if (this.#peek().type === 'OPERATOR' && this.#peek().value?.toLowerCase() === '=') {
+      this.#advance(2);
+
+      this.#targetExpr = constantDecl;
+
+      this.parse('EOL');
+
+      this.#targetExpr = constantDecl.parent;
+    }
+
+    this.#advance();
+
+    this.#pushDecl(constantDecl);
+  }
+
+  // ===========================================================================
+  // ===========================================================================
+
   #functionDeclaration() {
     /** @type {FunctionDeclaration} */
     const functionDecl = {
@@ -166,6 +209,17 @@ export default class Parser {
 
     this.#advance();
 
+    if (this.#currentType === 'LPAREN') {
+      this.#advance();
+    } else if (this.#currentType === 'IDENTIFIER' && this.#peekType === 'LPAREN') {
+      functionDecl.name = this.#currentValue;
+      this.#advance(2);
+    } else {
+      this.#functionReference();
+      return;
+    }
+
+    /*
     if (this.#currentType === 'KEYWORD' && this.#currentValue.toLowerCase() === 'takes') {
       this.#advance();
     } else if (this.#currentType === 'IDENTIFIER' && this.#peekType === 'KEYWORD' && this.#peekValue.toLowerCase() === 'takes') {
@@ -175,18 +229,19 @@ export default class Parser {
       this.#functionReference();
       return;
     }
+    */
 
     functionDecl.parameters = this.#functionParameterDeclaration();
 
     this.#advance();
 
-    functionDecl.returns = this.#currentValue;
+    // functionDecl.returns = this.#currentValue;
 
-    this.#advance();
+    // this.#advance();
 
     this.#targetExpr = functionDecl;
 
-    this.parse('KEYWORD', 'endfunction');
+    this.parse('KEYWORD', 'end');
 
     this.#advance();
 
@@ -200,13 +255,50 @@ export default class Parser {
   #functionParameterDeclaration() {
     const parameters = [];
 
-    while (this.#peek().type !== 'KEYWORD' && this.#peek().value?.toLowerCase() !== 'returns') {
+    while (true) {
+      /*
+      if (this.#currentValue === 'nothing') {
+        parameters.push({ type: this.#currentValue, value: this.#currentValue });
+        this.#advance();
+
+        if (this.#currentType === 'KEYWORD' && this.#currentValue === 'returns') {
+          break;
+        }
+      } else {
+        const parameter = { type: '', value: '' };
+        
+        parameter.type = this.#currentValue;
+        this.#advance();
+
+        parameter.value = this.#currentValue;
+        this.#advance();
+
+        if (this.#currentType === 'KEYWORD' && this.#currentValue === 'returns') {
+          parameters.push(parameter);
+          break;
+        }
+
+        if (this.#currentType === 'OPERATOR' && this.#currentValue === ',') {
+          this.#advance();
+        }
+
+        parameters.push(parameter);
+      }
+      */
+
+      if (this.#currentType === 'RPAREN') {
+        this.#advance();
+        break;
+      }
+
+      if (this.#currentType === 'OPERATOR' && this.#currentValue === ',') {
+        this.#advance();
+        continue;
+      }
+
       parameters.push(this.#currentValue);
       this.#advance();
     }
-
-    parameters.push(this.#currentValue);
-    this.#advance();
 
     return parameters;
   }
@@ -229,7 +321,7 @@ export default class Parser {
 
     this.#targetExpr = doExpression;
 
-    this.parse('KEYWORD', 'enddo');
+    this.parse('KEYWORD', 'end');
 
     this.#advance();
 
@@ -246,24 +338,24 @@ export default class Parser {
   #setExpression() {
     const setExpression = {
       type: 'SetExpression',
-      name: '',
-      body: [],
+      left: [],
+      right: [],
       parent: this.#targetExpr
     };
 
     this.#advance();
 
-    setExpression.name = this.#currentValue;
+    this.#targetExpr = setExpression.left;
 
-    this.#advance(2);
+    this.parse('OPERATOR', '=');
+    
+    this.#advance();
 
-    this.#targetExpr = setExpression;
+    this.#targetExpr = setExpression.right;
 
     this.parse('EOL');
 
     this.#targetExpr = setExpression.parent;
-
-    this.#advance();
 
     this.#pushDecl(setExpression);
   }
@@ -274,12 +366,17 @@ export default class Parser {
   #returnExpression() {
     const returnExpression = {
       type: 'ReturnExpression',
-      name: ''
+      body: [],
+      parent: this.#targetExpr
     };
 
     this.#advance();
 
-    returnExpression.name = this.#currentValue;
+    this.#targetExpr = returnExpression.body;
+
+    this.parse('EOL');
+
+    this.#targetExpr = returnExpression.parent;
 
     this.#advance();
 
@@ -319,7 +416,7 @@ export default class Parser {
 
     this.#targetExpr = ifStatement.then;
 
-    const { endValue } = this.parse('KEYWORD', ['endif', 'else']);
+    const { endValue } = this.parse('KEYWORD', ['end', 'else']);
 
     if (endValue === 'else') {
       this.#advance();
@@ -327,7 +424,7 @@ export default class Parser {
       ifStatement.else = [];
       this.#targetExpr = ifStatement.else;
 
-      this.parse('KEYWORD', 'endif');
+      this.parse('KEYWORD', 'end');
     }
 
     this.#advance();
@@ -343,13 +440,13 @@ export default class Parser {
   #callExpression(nested = false) {
     const callExpression = {
       type: 'CallExpression',
-      name: '',
+      name: [],
       async: false,
       body: [],
       parent: this.#targetExpr
     };
 
-    if (!nested) {
+    if (!nested || !this.#nestedCallExpr) {
       this.#advance();
     }
 
@@ -361,13 +458,27 @@ export default class Parser {
       this.#advance();
     }
 
-    callExpression.name = this.#currentValue;
+    this.#targetExpr = callExpression.name;
 
-    this.#advance(2);
+    this.#nestedCallNameExpr = true;
+    console.log(this.#currentType, this.#currentValue)
+
+    this.parse('LPAREN');
+
+    this.#nestedCallNameExpr = false;
+
+    this.#targetExpr = callExpression.parent;
+
+    this.#advance();
 
     this.#targetExpr = callExpression;
 
+    const prevNestedCallExpr = this.#nestedCallExpr;
+    this.#nestedCallExpr = true;
+
     this.parse('RPAREN');
+
+    this.#nestedCallExpr = prevNestedCallExpr;
 
     this.#targetExpr = callExpression.parent;
 
@@ -440,7 +551,7 @@ export default class Parser {
 
     this.#targetExpr = loopStatement;
 
-    this.parse('KEYWORD', 'endloop');
+    this.parse('KEYWORD', 'end');
 
     this.#advance();
 
@@ -486,6 +597,26 @@ export default class Parser {
 
   // ===========================================================================
   // ===========================================================================
+
+  #object() {
+    const objectDeclaration = {
+      type: 'ObjectDeclaration',
+      body: []
+    };
+
+    this.#advance();
+
+    const prevTargetExpr = this.#targetExpr;
+    this.#targetExpr = objectDeclaration;
+
+    this.parse('RBRACE');
+
+    this.#targetExpr = prevTargetExpr;
+
+    this.#advance();
+
+    this.#pushDecl(objectDeclaration);
+  }
 
   #number() {
     const number = {
@@ -536,11 +667,14 @@ export default class Parser {
   #identifier() {
     const identifier = {
       type: 'Identifier',
-      value: ''
+      value: '',
+      parent: this.#targetExpr
     };
 
-    if (this.#peekType === 'LPAREN') {
+    if (this.#peekType === 'LPAREN' && !this.#nestedCallNameExpr) {
+      this.#nestedCallExpr = true;
       this.#callExpression(true);
+      this.#nestedCallExpr = false;
       return;
     }
 
@@ -549,6 +683,17 @@ export default class Parser {
     this.#advance();
 
     this.#pushDecl(identifier);
+  }
+
+  #nilExpression() {
+    const nilExpression = {
+      type: 'NilExpression',
+      parent: this.#targetExpr
+    };
+
+    this.#advance();
+
+    this.#pushDecl(nilExpression);
   }
 
   #string() {
@@ -567,7 +712,25 @@ export default class Parser {
   // ===========================================================================
   // ===========================================================================
 
+  #debugExpression() {
+    const debugExpression = {
+      type: 'DebugExpression'
+    };
+
+    this.#advance();
+
+    this.#pushDecl(debugExpression);
+  }
+
+  // ===========================================================================
+  // ===========================================================================
+
   #keyword() {
+    if (Object.keys(Parser.#NATIVE_TYPES).includes(this.#currentValue.toLowerCase()) && this.#targetExpr.type === 'GlobalsDeclaration') {
+      this.#variableDeclaration();
+      return;
+    }
+
     switch (this.#currentValue.toLowerCase()) {
       case 'globals':
         this.#globalsDeclaration();
@@ -585,6 +748,10 @@ export default class Parser {
         this.#variableDeclaration();
         break;
       
+      case 'constant':
+        this.#constantDeclaration();
+        break;
+
       case 'set':
         this.#setExpression();
         break;
@@ -608,6 +775,21 @@ export default class Parser {
       case 'exitwhen':
         this.#exitwhenExpression();
         break;
+
+      case 'debug':
+        this.#debugExpression();
+        break;
+
+      case 'nil':
+        this.#nilExpression();
+        break;
+
+      case 'is':
+      case 'not':
+      case 'new':
+      case 'null':
+        this.#operator();
+        break;
     }
   }
 
@@ -625,6 +807,10 @@ export default class Parser {
       switch (this.#currentType) {
         case 'KEYWORD':
           this.#keyword();
+          break;
+
+        case 'LBRACE':
+          this.#object();
           break;
 
         case 'NUMBER':
@@ -653,9 +839,5 @@ export default class Parser {
       endType: this.#currentType,
       endValue: this.#currentValue
     };
-  }
-
-  writeAst() {
-    fs.writeFileSync('./ast.txt', util.inspect(this.#targetExpr, false, 1000), { encoding: 'utf-8' });
   }
 }
