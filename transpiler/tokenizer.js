@@ -3,20 +3,21 @@
  * @property {string} type
  * @property {string} [value]
  */
-import fs from "fs";
-import util from "util";
 
 export default class Scanner {
   static #KEYWORDS = [
-    'nothing', 'null', 'string', 'integer', 'real', 'boolean', 'object',
+    'nothing', 'null', 'nil', 'string', 'integer', 'real', 'boolean', 'object',
     'globals', 'endglobals',
     'function', 'endfunction', 'await',
     'takes', 'returns',
     'do', 'enddo',
-    'local', 'const', 'set', 'return',
+    'end',
+    'local', 'constant', 'new', 'set', 'return',
     'if', 'then', 'else', 'elseif', 'endif',
+    'is', 'not',
     'loop', 'exitwhen', 'endloop',
-    'call'
+    'call',
+    'debug'
   ];
 
   /** @type {Token[]} */
@@ -27,7 +28,7 @@ export default class Scanner {
   }
 
   #isAlphaNumeric(str) {
-    return /[A-Za-z0-9_]+/.test(str);
+    return /^[A-Za-z0-9_$]+$/.test(str);
   }
 
   #isKeyword(str) {
@@ -35,7 +36,7 @@ export default class Scanner {
   }
 
   #isOperator(str) {
-    return /^[+*\/-=.,<>]+$/.test(str);
+    return /^[!+*\/\-=.,:<>\[\]]+$/.test(str);
   }
 
   /**
@@ -47,6 +48,11 @@ export default class Scanner {
 
     for (let index = 0; index < str.length; index++) {
       token += str[index];
+
+      if (token === ';') {
+        token = '';
+        continue;
+      }
 
       if (token === '\n' || token === '\r\n') {
         this.#tokens.push({ type: 'EOL' });
@@ -64,6 +70,23 @@ export default class Scanner {
         index++;
 
         while (str[index] !== '"') {
+          strValue += str[index];
+          index++;
+        }
+
+        strValue += str[index];
+
+        this.#tokens.push({ type: 'STRING', value: strValue });
+
+        token = '';
+        continue;
+      }
+
+      if (token === '\'') {
+        let strValue = '\'';
+        index++;
+
+        while (str[index] !== '\'') {
           strValue += str[index];
           index++;
         }
@@ -122,9 +145,5 @@ export default class Scanner {
     this.#tokens.push({ type: 'EOF' });
 
     return this.#tokens;
-  }
-
-  writeTokens() {
-    fs.writeFileSync('./tokens.txt', this.#tokens.reduce((acc, tok) => acc + `{ type: '${tok.type}'${tok.value ? `, value: '${tok.value }'` : ''} },\n`, ''), { encoding: 'utf-8' });
   }
 }
