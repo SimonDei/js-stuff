@@ -16,9 +16,13 @@ export default class Walker {
     '.': '.',
     '->': '.',
     '==': '===',
-    'is': '===',
     '!=': '!==',
-    'not': '!=='
+    'is': '===',
+    'not': '!==',
+    'and': '&&',
+    'or': '||',
+    'less': '<',
+    'greater': '>'
   };
 
   #ast = [];
@@ -26,7 +30,7 @@ export default class Walker {
   #nextTargetExpr = {};
   #parentTargetExpr = [];
   #targetExpr = [];
-  #depth = 0;
+  #depth = 1;
   #separator = '';
   #allowSpaces = true;
   #allowSemi = true;
@@ -97,7 +101,13 @@ export default class Walker {
       this.#source += 'async ';
     }
 
-    this.#source += `function ${this.#targetExpr.name}(`;
+    this.#source += 'function';
+    
+    if (this.#targetExpr.name) {
+      this.#source += ` ${this.#targetExpr.name}`;
+    }
+
+    this.#source += '(';
 
     this.#targetExpr.parameters
       // .filter(e => e.value !== 'nothing')
@@ -192,10 +202,28 @@ export default class Walker {
     this.#source += 'if (';
 
     let prevTargetExpr = this.#targetExpr;
-    this.#targetExpr = this.#targetExpr.test;
+    this.#targetExpr = this.#targetExpr.testLeft;
 
-    const prevSpaces = this.#allowSpaces;
-    const prevSemi = this.#allowSemi;
+    let prevSpaces = this.#allowSpaces;
+    let prevSemi = this.#allowSemi;
+
+    this.#allowSpaces = false;
+    this.#allowSemi = false;
+
+    this.walk();
+
+    this.#allowSpaces = prevSpaces;
+    this.#allowSemi = prevSemi;
+
+    this.#targetExpr = prevTargetExpr;
+
+    this.#source += ` ${this.#targetExpr.operator} `;
+
+    prevTargetExpr = this.#targetExpr;
+    this.#targetExpr = this.#targetExpr.testRight;
+
+    prevSpaces = this.#allowSpaces;
+    prevSemi = this.#allowSemi;
 
     this.#allowSpaces = false;
     this.#allowSemi = false;
@@ -328,9 +356,101 @@ export default class Walker {
 
     this.#source += `)`;
 
+    if (this.#nextTargetExpr?.type === 'Operator' && this.#nextTargetExpr?.value === '.') {
+      return;
+    }
+
     if (this.#allowSemi && this.#nestedCallStack === 0) {
       this.#source += ';\n';
     }
+  }
+
+  memberExpression() {
+    if (this.#allowSpaces) {
+      this.#addSpaces();
+    }
+
+    this.#source += `${this.#targetExpr.left}.`;
+    
+    const prevAllowSpaces = this.#allowSpaces;
+    const prevAllowSemi = this.#allowSemi;
+    const prevTargetExpr = this.#targetExpr;
+
+    this.#targetExpr = this.#targetExpr.right;
+    this.#allowSemi = false;
+    this.#allowSpaces = false;
+
+    this.walk();
+
+    this.#allowSpaces = prevAllowSpaces;
+    this.#allowSemi = prevAllowSemi;
+    this.#targetExpr = prevTargetExpr;
+
+    if (this.#allowSemi) {
+      this.#source += ';\n';
+    }
+  }
+
+  arrayAccessExpression() {
+    if (this.#allowSpaces) {
+      this.#addSpaces();
+    }
+
+    this.#source += `${this.#targetExpr.name}[`;
+
+    const prevAllowSpaces = this.#allowSpaces;
+    const prevAllowSemi = this.#allowSemi;
+    const prevTargetExpr = this.#targetExpr;
+
+    this.#targetExpr = this.#targetExpr.body;
+    this.#allowSemi = false;
+    this.#allowSpaces = false;
+
+    this.walk();
+
+    this.#allowSpaces = prevAllowSpaces;
+    this.#allowSemi = prevAllowSemi;
+    this.#targetExpr = prevTargetExpr;
+
+    this.#source += ']';
+
+    if (this.#allowSemi) {
+      this.#source += ';\n';
+    }
+  }
+
+  conditionExpression() {
+    if (this.#allowSpaces) {
+      this.#addSpaces();
+    }
+
+    this.#source += `if (!(`;
+
+    const prevAllowSpaces = this.#allowSpaces;
+    const prevAllowSemi = this.#allowSemi;
+    const prevTargetExpr = this.#targetExpr;
+
+    this.#targetExpr = this.#targetExpr.body;
+    this.#allowSemi = false;
+    this.#allowSpaces = false;
+
+    this.walk();
+
+    this.#allowSpaces = prevAllowSpaces;
+    this.#allowSemi = prevAllowSemi;
+    this.#targetExpr = prevTargetExpr;
+
+    this.#source += ')) {\n';
+
+    this.#depth++;
+    this.#addSpaces();
+    this.#depth--;
+
+    this.#source += 'return;\n';
+    
+    this.#addSpaces();
+
+    this.#source += '}\n';
   }
 
   staticValue() {
@@ -388,6 +508,67 @@ export default class Walker {
     this.#source += '}\n';
   }
 
+  forStatement() {
+    if (this.#allowSpaces) {
+      this.#addSpaces();
+    }
+
+    this.#source += `for (let ${this.#targetExpr.indexVar} = `;
+
+    let prevTargetExpr = this.#targetExpr;
+    this.#targetExpr = this.#targetExpr.from;
+
+    let prevAllowSpaces = this.#allowSpaces;
+    let prevAllowSemi = this.#allowSemi;
+
+    this.#allowSpaces = false;
+    this.#allowSemi = false;
+
+    this.walk();
+
+    this.#allowSpaces = prevAllowSpaces;
+    this.#allowSemi = prevAllowSemi;
+
+    this.#targetExpr = prevTargetExpr;
+
+    this.#source += `; ${this.#targetExpr.indexVar} <= `;
+
+    prevTargetExpr = this.#targetExpr;
+    this.#targetExpr = this.#targetExpr.to;
+
+    prevAllowSpaces = this.#allowSpaces;
+    prevAllowSemi = this.#allowSemi;
+
+    this.#allowSpaces = false;
+    this.#allowSemi = false;
+
+    this.walk();
+
+    this.#allowSpaces = prevAllowSpaces;
+    this.#allowSemi = prevAllowSemi;
+
+    this.#targetExpr = prevTargetExpr;
+
+    this.#source += `; ${this.#targetExpr.indexVar}++) {\n`;
+
+    prevTargetExpr = this.#targetExpr;
+    this.#targetExpr = this.#targetExpr.body;
+
+    this.#depth++;
+
+    this.walk();
+
+    this.#depth--;
+
+    this.#targetExpr = prevTargetExpr;
+
+    if (this.#allowSpaces) {
+      this.#addSpaces();
+    }
+
+    this.#source += '}\n';
+  }
+
   doExpression() {
     if (this.#allowSpaces) {
       this.#addSpaces();
@@ -423,11 +604,19 @@ export default class Walker {
     this.#source += 'return ';
 
     const prevTargetExpr = this.#targetExpr;
-    this.#targetExpr = this.#targetExpr.body;
+    const prevAllowSpaces = this.#allowSpaces;
+    const prevAllowSemi = this.#allowSemi;
 
+    this.#targetExpr = this.#targetExpr.body;
+    
+    this.#allowSpaces = false
+    this.#allowSemi = false;
+    
     this.walk();
 
     this.#targetExpr = prevTargetExpr;
+    this.#allowSpaces = prevAllowSpaces;
+    this.#allowSemi = prevAllowSemi;
 
     this.#source += ';\n';
   }
@@ -440,17 +629,46 @@ export default class Walker {
     this.#source += ' null';
   }
 
+  assignmentExpression() {
+    if (this.#allowSpaces) {
+      this.#addSpaces();
+    }
+
+    this.#source += `${this.#targetExpr.left}: `;
+
+    const prevTargetExpr = this.#targetExpr;
+    this.#targetExpr = this.#targetExpr.right;
+
+    this.walk();
+
+    this.#targetExpr = prevTargetExpr;
+
+    if (this.#walkIndex <= this.#walkLength) {
+      this.#source += ',';
+    }
+  }
+
   objectDeclaration() {
     if (this.#allowSpaces) {
       this.#addSpaces();
     }
 
     this.#source += `{`;
-    
-    if (this.#targetExpr.body.length !== 0 && (this.#targetExpr.body.length - 3) % 4 !== 0) {
-      throw new Error('Wrong amount of arguments for object');
-    }
 
+    const prevTargetExpr = this.#targetExpr;
+    //const prevAllowSpaces = this.#allowSpaces;
+
+    this.#targetExpr = this.#targetExpr.body;
+    //this.#allowSpaces = true;
+    //this.#depth++;
+
+    this.walk();
+
+    this.#targetExpr = prevTargetExpr;
+    //this.#allowSpaces = prevAllowSpaces;
+    //this.#depth--;
+
+    /*
     if (this.#targetExpr.body.length > 0) {
       this.#depth++;
       
@@ -473,6 +691,7 @@ export default class Walker {
       this.#source += '\n';
       this.#addSpaces();
     }
+    */
 
     this.#source += '}';
   }
@@ -480,7 +699,7 @@ export default class Walker {
   number() {
     this.#source += this.#targetExpr.value;
 
-    if (this.#separator && this.#walkIndex < this.#walkLength - 1) {
+    if (this.#nestedCallStack <= 0 && this.#separator && this.#walkIndex < this.#walkLength - 1) {
       this.#source += ' ';
     }
   }
@@ -494,6 +713,16 @@ export default class Walker {
   }
 
   identifier() {
+    if (this.#targetExpr.value.startsWith('#')) {
+      this.#source += `${this.#targetExpr.value.slice(1)}.length`;
+
+      if (this.#walkIndex < this.#walkLength - 1 && this.#nextTargetExpr?.value !== '.' && this.#allowSpaces) {
+        this.#source += ' ';
+      }
+
+      return;
+    }
+
     if (this.#targetExpr.parent.type === 'GlobalsDeclaration') {
       if (this.#allowSpaces) {
         this.#addSpaces();
@@ -504,7 +733,7 @@ export default class Walker {
 
     this.#source += this.#targetExpr.value;
 
-    if (this.#walkIndex < this.#walkLength - 1 && this.#nextTargetExpr?.value !== '.' && this.#allowSpaces) {
+    if (this.#walkIndex < this.#walkLength - 1 && this.#nextTargetExpr?.value !== '.' && this.#nextTargetExpr?.value !== '->' && this.#allowSpaces) {
       this.#source += ' ';
     }
   }
@@ -525,7 +754,7 @@ export default class Walker {
     this.#source += this.#targetExpr.value;
     */
 
-    if (this.#walkIndex < this.#walkLength - 1 && this.#targetExpr.value !== '.' && this.#allowSpaces) {
+    if ((this.#walkIndex < this.#walkLength - 1 && this.#allowSpaces) || this.#nestedCallStack > 0) {
       this.#source += ' ';
     }
   }
@@ -574,11 +803,11 @@ export default class Walker {
 
     for (const stdFunction of this.#foundStdFunctions) {
       if (StdDecls.hasOwnProperty(stdFunction)) {
-        stdFunctionSource += `const __${stdFunction} = ${StdDecls[stdFunction].toString()};\n`;
+        stdFunctionSource += `  const __${stdFunction} = ${StdDecls[stdFunction].toString().replace(/[\r\t\n]/g, '')};\n`;
       }
     }
 
-    this.#source = stdFunctionSource + this.#source;
+    this.#source = '(function() {\n' + stdFunctionSource + this.#source + '})();';
   }
 
   getSource() {
