@@ -16,7 +16,7 @@ fs.writeFileSync('./tokens.txt', tokens.reduce((acc, tok) => acc + `{ type: '${t
 const parser = new Parser(tokens);
 const { ast } = parser.parse('EOF');
 
-console.log(util.inspect(ast, false, { depth: 100 }));
+fs.writeFileSync('./ast.txt', util.inspect(ast, false, { depth: 100 }));
 
 const walker = new Walker(ast);
 walker.walk();
