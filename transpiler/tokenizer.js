@@ -14,10 +14,12 @@ export default class Scanner {
     'end',
     'local', 'constant', 'new', 'set', 'return',
     'if', 'then', 'else', 'elseif', 'endif',
-    'is', 'not',
+    'is', 'not', 'and', 'or',
     'loop', 'exitwhen', 'endloop',
+    'for', 'to', 'in',
     'call',
-    'debug'
+    'debug',
+    'condition'
   ];
 
   /** @type {Token[]} */
@@ -28,7 +30,7 @@ export default class Scanner {
   }
 
   #isAlphaNumeric(str) {
-    return /^[A-Za-z0-9_$]+$/.test(str);
+    return /^[A-Za-z0-9_$#]+$/.test(str);
   }
 
   #isKeyword(str) {
