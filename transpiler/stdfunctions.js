@@ -4,29 +4,29 @@ const StdDecls = {};
 // Universal Functions
 // ========================================================================================
 
-StdDecls.Assert = function(test, message) {
+StdDecls.assert = function(test, message) {
   if (!test) {
     throw new Error(message);
   }
 };
 
-StdDecls.TypeOf = function(value) {
+StdDecls.typeof = function(value) {
   return Object.prototype.toString.call(value);
 };
 
-StdDecls.ToInteger = function(value) {
+StdDecls.tointeger = function(value) {
   return Number.parseInt(value);
 };
 
-StdDecls.ToFloat = function(value) {
+StdDecls.tofloat = function(value) {
   return Number.parseFloat(value);
 };
 
-StdDecls.ToString = function(value) {
+StdDecls.tostring = function(value) {
   return value?.toString() ?? '';
 };
 
-StdDecls.ToBoolean = function(value) {
+StdDecls.toboolean = function(value) {
   return Boolean(value);
 };
 
@@ -38,27 +38,27 @@ StdDecls.S2I = function(value) {
   return Number.parseInt(value);
 };
 
-StdDecls.Print = function(message) {
+StdDecls.print = function(message) {
   console.log(message);
 };
 
-StdDecls.Log = function(value) {
+StdDecls.log = function(value) {
   console.log(value);
 };
 
-StdDecls.Info = function(value) {
+StdDecls.info = function(value) {
   console.info(value)
 };
 
-StdDecls.Length = function(value) {
+StdDecls.length = function(value) {
   return value?.length ?? 0;
 };
 
-StdDecls.At = function(array, index) {
+StdDecls.at = function(array, index) {
   return array[index];
 };
 
-StdDecls.Pairs = function(object) {
+StdDecls.pairs = function(object) {
   return Object.entries(object);
 };
 
@@ -66,19 +66,19 @@ StdDecls.Pairs = function(object) {
 // String Functions
 // ========================================================================================
 
-StdDecls.Upper = function(value) {
+StdDecls.upper = function(value) {
   return value.toUpperCase();
 };
 
-StdDecls.Lower = function(value) {
+StdDecls.lower = function(value) {
   return value.toLowerCase();
 };
 
-StdDecls.SubString = function(value, start, end) {
+StdDecls.substr = function(value, start, end) {
   return value.substring(start, end);
 };
 
-StdDecls.Char = function(value) {
+StdDecls.char = function(value) {
   return value.charCodeAt(0);
 };
 
@@ -86,39 +86,39 @@ StdDecls.Char = function(value) {
 // Math Functions
 // ========================================================================================
 
-StdDecls.Add = function(a, b) {
+StdDecls.add = function(a, b) {
   return a + b;
 };
 
-StdDecls.Sub = function(a, b) {
+StdDecls.sub = function(a, b) {
   return a - b;
 };
 
-StdDecls.Mul = function(a, b) {
+StdDecls.mul = function(a, b) {
   return a * b;
 };
 
-StdDecls.Div = function(a, b) {
+StdDecls.div = function(a, b) {
   return a / b;
 };
 
-StdDecls.Pow = function(a, b) {
+StdDecls.pow = function(a, b) {
   return Math.pow(a, b);
 };
 
-StdDecls.Floor = function(value) {
+StdDecls.floor = function(value) {
   return Math.floor(value);
 };
 
-StdDecls.Round = function(value) {
+StdDecls.round = function(value) {
   return Math.round(value);
 };
 
-StdDecls.Random = function(min = 0, max = 1) {
+StdDecls.rand = function(min = 0, max = 1) {
   return (Math.random() * max) + min;
 };
 
-StdDecls.RandomInt = function(min = 0, max = 1) {
+StdDecls.randInt = function(min = 0, max = 1) {
   return Math.floor(Math.random() * max) + min;
 };
 
@@ -126,31 +126,31 @@ StdDecls.RandomInt = function(min = 0, max = 1) {
 // Array Functions
 // ========================================================================================
 
-StdDecls.Array = function(...values) {
+StdDecls.array = function(...values) {
   return [...values];
 };
 
-StdDecls.Each = function(array, func) {
+StdDecls.each = function(array, func) {
   for (const item of array) {
     func(item);
   }
 };
 
-StdDecls.ForEach = function(array, func) {
+StdDecls.foreach = function(array, func) {
   for (const item of array) {
     func(item);
   }
 };
 
-StdDecls.Find = function(needle, haystack) {
+StdDecls.find = function(needle, haystack) {
   return haystack.find(e => e === needle);
 };
 
-StdDecls.Compact = function(array) {
+StdDecls.compact = function(array) {
   return array.filter(Boolean);
 };
 
-StdDecls.Concat = function(array1, array2) {
+StdDecls.concat = function(array1, array2) {
   return [...array1, ...array2];
 };
 
@@ -170,11 +170,11 @@ StdDecls.ReadClipboard = async function() {
 // User Interaction Functions
 // ========================================================================================
 
-StdDecls.Alert = function(message) {
+StdDecls.alert = function(message) {
   alert(message);
 };
 
-StdDecls.Confirm = function(message) {
+StdDecls.confirm = function(message) {
   return confirm(message);
 };
 
@@ -182,15 +182,15 @@ StdDecls.Confirm = function(message) {
 // Ajax Functions
 // ========================================================================================
 
-StdDecls.Fetch = async function(url) {
+StdDecls.fetch = async function(url) {
   return fetch(url);
 };
 
-StdDecls.FetchJson = async function(url) {
+StdDecls.fetchJson = async function(url) {
   return fetch(url).then(resp => resp.json());
 };
 
-StdDecls.FetchText = async function(url) {
+StdDecls.fetchText = async function(url) {
   return fetch(url).then(resp => resp.text());
 };
 
