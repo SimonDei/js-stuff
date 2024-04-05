@@ -17,9 +17,10 @@ export default class Scanner {
     'is', 'not', 'and', 'or',
     'loop', 'exitwhen', 'endloop',
     'for', 'to', 'in',
+    'struct',
     'call',
     'debug',
-    'condition'
+    'condition', 'expect'
   ];
 
   /** @type {Token[]} */
@@ -132,6 +133,13 @@ export default class Scanner {
         } else {
           this.#tokens.push({ type: 'IDENTIFIER', value: token });
         }
+
+        token = '';
+        continue;
+      }
+
+      if (token === '[' || token === ']') {
+        this.#tokens.push({ type: 'OPERATOR', value: token });
 
         token = '';
         continue;
