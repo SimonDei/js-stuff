@@ -30,6 +30,7 @@ export default class Walker {
   #nextTargetExpr = {};
   #parentTargetExpr = [];
   #targetExpr = [];
+  #typesEnabled = false;
   #depth = 1;
   #separator = '';
   #allowSpaces = true;
@@ -38,11 +39,15 @@ export default class Walker {
   #walkLength = 0;
   #foundStdFunctions = [];
   #nestedCallStack = 0;
+  #isInObject = false;
+  #isInMemberExpression = false;
+  #isInAssignmentExpression = false;
   #source = '';
 
-  constructor(ast) {
+  constructor(ast, types = false) {
     this.#ast = ast;
     this.#targetExpr = this.#ast;
+    this.#typesEnabled = types;
   }
 
   #addSpaces() {
@@ -375,16 +380,19 @@ export default class Walker {
     const prevAllowSpaces = this.#allowSpaces;
     const prevAllowSemi = this.#allowSemi;
     const prevTargetExpr = this.#targetExpr;
+    const prevIsInMemberExpr = this.#isInMemberExpression;
 
     this.#targetExpr = this.#targetExpr.right;
     this.#allowSemi = false;
     this.#allowSpaces = false;
+    this.#isInMemberExpression = true;
 
     this.walk();
 
     this.#allowSpaces = prevAllowSpaces;
     this.#allowSemi = prevAllowSemi;
     this.#targetExpr = prevTargetExpr;
+    this.#isInMemberExpression = prevIsInMemberExpr;
 
     if (this.#allowSemi) {
       this.#source += ';\n';
@@ -629,23 +637,83 @@ export default class Walker {
     this.#source += ' null';
   }
 
+  structDefinition() {
+    if (this.#allowSpaces) {
+      this.#addSpaces();
+    }
+
+    this.#source += `const ${this.#targetExpr.name} = {\n`;
+
+    const prevTargetExpr = this.#targetExpr;
+    const prevAllowSpaces = this.#allowSpaces;
+    const prevAllowSemi = this.#allowSemi;
+
+    this.#targetExpr = this.#targetExpr.body;
+    this.#allowSpaces = true;
+    this.#allowSemi = false;
+
+    this.#depth++;
+
+    this.walk();
+
+    this.#depth--;
+
+    this.#targetExpr = prevTargetExpr;
+    this.#allowSpaces = prevAllowSpaces;
+    this.#allowSemi = prevAllowSemi;
+
+    if (this.#allowSpaces) {
+      this.#addSpaces();
+    }
+
+    this.#source += '};\n';
+  }
+
   assignmentExpression() {
     if (this.#allowSpaces) {
       this.#addSpaces();
     }
 
-    this.#source += `${this.#targetExpr.left}: `;
+    if (this.#isInObject) {
+      this.objectAssignmentExpression();
+      return;
+    }
+
+    this.#source += `${this.#targetExpr.left} = `;
 
     const prevTargetExpr = this.#targetExpr;
+    const prevIsInAssignmentExpr = this.#isInAssignmentExpression;
+
     this.#targetExpr = this.#targetExpr.right;
+    this.#isInAssignmentExpression = true;
 
     this.walk();
 
     this.#targetExpr = prevTargetExpr;
+    this.#isInAssignmentExpression = prevIsInAssignmentExpr;
 
-    if (this.#walkIndex <= this.#walkLength) {
-      this.#source += ',';
+    if (!this.#isInMemberExpression) {
+      this.#source += ';\n';
     }
+  }
+
+  objectAssignmentExpression() {
+    this.#source += `${this.#targetExpr.left}: `;
+
+    const prevTargetExpr = this.#targetExpr;
+    const prevIsInAssignmentExpr = this.#isInAssignmentExpression;
+
+    this.#targetExpr = this.#targetExpr.right;
+    this.#isInAssignmentExpression = true;
+
+    this.walk();
+
+    this.#targetExpr = prevTargetExpr;
+    this.#isInAssignmentExpression = prevIsInAssignmentExpr;
+
+    //if (this.#walkIndex <= this.#walkLength) {
+      this.#source += ',\n';
+    //}
   }
 
   objectDeclaration() {
@@ -656,17 +724,20 @@ export default class Walker {
     this.#source += `{`;
 
     const prevTargetExpr = this.#targetExpr;
+    const prevIsInObject = this.#isInObject;
     //const prevAllowSpaces = this.#allowSpaces;
 
     this.#targetExpr = this.#targetExpr.body;
+    this.#isInObject = true;
     //this.#allowSpaces = true;
-    //this.#depth++;
+    this.#depth++;
 
     this.walk();
 
     this.#targetExpr = prevTargetExpr;
+    this.#isInObject = prevIsInObject;
     //this.#allowSpaces = prevAllowSpaces;
-    //this.#depth--;
+    this.#depth--;
 
     /*
     if (this.#targetExpr.body.length > 0) {
@@ -739,6 +810,10 @@ export default class Walker {
   }
 
   operator() {
+    if (this.#isInMemberExpression && this.#isInAssignmentExpression && this.#targetExpr.value === ',') {
+      return;
+    }
+
     if (Object.keys(Walker.#NATIVE_OPERATORS).includes(this.#targetExpr.value)) {
       this.#source += Walker.#NATIVE_OPERATORS[this.#targetExpr.value];
     } else {
