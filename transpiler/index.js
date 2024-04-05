@@ -4,6 +4,15 @@ import Walker from './walker.js';
 import * as fs from 'fs';
 import * as util from 'util';
 
+const userArgs = process.argv.slice(2);
+let typesEnabled = false;
+
+if (userArgs.length > 0) {
+  if (userArgs.includes('--types')) {
+    typesEnabled = true;
+  }
+}
+
 const code = fs.readFileSync('./index.b', { encoding: 'utf-8' });
 
 const scanner = new Scanner();
@@ -13,12 +22,12 @@ console.log(tokens);
 
 fs.writeFileSync('./tokens.txt', tokens.reduce((acc, tok) => acc + `{ type: '${tok.type}'${tok.value ? `, value: '${tok.value }'` : ''} },\n`, ''), { encoding: 'utf-8' });
 
-const parser = new Parser(tokens);
+const parser = new Parser(tokens, typesEnabled);
 const { ast } = parser.parse('EOF');
 
 fs.writeFileSync('./ast.txt', util.inspect(ast, false, { depth: 100 }));
 
-const walker = new Walker(ast);
+const walker = new Walker(ast, typesEnabled);
 walker.walk();
 walker.addStdFunctions();
 
