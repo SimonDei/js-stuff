@@ -9,12 +9,15 @@ function interpretScripts() {
   const parser = new Parser();
 
   for (const script of scripts) {
+    const typesEnabled = Boolean(script.dataset?.types);
+    parser.setTypesEnabled(typesEnabled);
+
     const tokens = scanner.tokenize(script.textContent);
 
     parser.reset(tokens);
     const { ast } = parser.parse('EOF');
 
-    const walker = new Walker(ast);
+    const walker = new Walker(ast, typesEnabled);
     walker.walk();
     walker.addStdFunctions();
 
