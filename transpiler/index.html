@@ -12,30 +12,27 @@
   <button id="sub">-</button>
 
   <script type="text/basescript">
-    local element counter = call QuerySelector("#count")
+    local counter = document.querySelector('#count')
 
-    function add takes nothing returns nothing
-      local string count = call GetText(counter)
-      set count = call S2I(count) + 1
-      call SetText(counter, count)
-    endfunction
+    function add()
+      local count = tointeger(counter.textContent)
+      set count = count + 1
+      set counter.textContent = count
+    end
 
-    function sub takes nothing returns nothing
-      local string count = call GetText(counter)
-      set count = call S2I(count) - 1
+    function sub()
+      local count = tointeger(counter.textContent)
+      set count = count - 1
 
-      if count < 0 then
-        call Alert("Counter wuerde unter 0 fallen.")
-        return
-      endif
+      condition count > 0
 
-      call SetText(counter, count)
-    endfunction
+      set counter.textContent = count
+    end
 
-    call OnClick("#add", function add)
-    call OnClick("#sub", function sub)
+    document.querySelector('#add').addEventListener('click', add)
+    document.querySelector('#sub').addEventListener('click', sub)
   </script>
 
-  <script type="text/javascript" src="./browser/basescript.min.js"></script>
+  <script type="text/javascript" src="./dist/basescript.min.js"></script>
 </body>
 </html>
