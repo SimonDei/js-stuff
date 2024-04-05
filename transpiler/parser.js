@@ -1,3 +1,5 @@
+// import util from 'util';
+
 /**
  * @typedef FunctionDeclaration
  * @property {string} [type='FunctionDeclaration']
@@ -40,6 +42,7 @@ export default class Parser {
   #expr = [];
   /** @type {any[] | (any & { body: any[], parent: any[] })} */
   #targetExpr = [];
+  #typesEnabled = false;
   #parentExprType = '';
   #currentFunction = undefined;
   #nestedCallExpr = false;
@@ -49,14 +52,19 @@ export default class Parser {
   /**
    * @param {import('./tokenizer').Token[]} tokens 
    */
-  constructor(tokens) {
+  constructor(tokens, types = false) {
     this.#tokens = tokens;
     this.#targetExpr = this.#expr;
+    this.#typesEnabled = types;
   }
 
   reset(tokens) {
     this.#tokens = tokens;
     this.#targetExpr = [];
+  }
+
+  setTypesEnabled(types) {
+    this.#typesEnabled = types;
   }
 
   #advance(amount = 1) {
@@ -127,6 +135,7 @@ export default class Parser {
     /** @type {VariableDeclaration} */
     const variableDecl = {
       type: 'VariableDeclaration',
+      varType: undefined,
       name: '',
       body: [],
       parent: this.#targetExpr
@@ -134,9 +143,11 @@ export default class Parser {
 
     this.#advance();
 
-    // variableDecl.varType = this.#currentValue;
+    if (this.#typesEnabled) {
+      variableDecl.varType = this.#currentValue;
 
-    // this.#advance();
+      this.#advance();
+    }
 
     variableDecl.name = this.#currentValue;
 
@@ -219,6 +230,8 @@ export default class Parser {
       return;
     }
 
+    // console.log(this.#currentType, this.#currentValue);
+
     /*
     if (this.#currentType === 'KEYWORD' && this.#currentValue.toLowerCase() === 'takes') {
       this.#advance();
@@ -233,7 +246,9 @@ export default class Parser {
 
     functionDecl.parameters = this.#functionParameterDeclaration();
 
-    this.#advance();
+    //console.log(this.#currentType, this.#currentValue);
+
+    //this.#advance();
 
     // functionDecl.returns = this.#currentValue;
 
@@ -342,6 +357,8 @@ export default class Parser {
       right: [],
       parent: this.#targetExpr
     };
+
+    //console.log('set expression');
 
     this.#parentExprType = setExpression.type;
 
@@ -493,9 +510,11 @@ export default class Parser {
 
     this.#targetExpr = callExpression.parent;
 
-    //console.log(callExpression.name);
+    //console.log(callExpression);
 
     this.#advance();
+
+    //console.log(this.#currentType, this.#currentValue)
 
     this.#targetExpr = callExpression;
 
@@ -528,6 +547,35 @@ export default class Parser {
     this.#advance();
 
     this.#pushDecl(callExpression);
+
+    //console.log(this.#targetExpr);
+  }
+
+  #structDefinition() {
+    const structDefinition = {
+      type: 'StructDefinition',
+      name: '',
+      body: [],
+      parent: this.#targetExpr
+    };
+
+    this.#advance();
+
+    structDefinition.name = this.#currentValue;
+
+    this.#advance();
+
+    const prevTargetExpr = this.#targetExpr;
+
+    this.#targetExpr = structDefinition.body;
+
+    this.parse('KEYWORD', 'end');
+
+    this.#targetExpr = prevTargetExpr;
+
+    this.#advance();
+
+    this.#pushDecl(structDefinition);
   }
 
   #memberExpression() {
@@ -545,7 +593,7 @@ export default class Parser {
     const prevTargetExpr = this.#targetExpr;
     this.#targetExpr = memberExpression.right;
 
-    this.parse(['EOL', 'KEYWORD'], [undefined, 'then']);
+    this.parse(['EOL', 'KEYWORD', 'RPAREN', 'OPERATOR'], [undefined, 'then', undefined, '+', '-', '*', '/', '>', '<', '>=', '<=', '==', '!=']);
 
     this.#targetExpr = prevTargetExpr;
 
@@ -575,6 +623,8 @@ export default class Parser {
     this.#targetExpr = prevTargetExpr;
 
     this.#advance();
+
+    //console.log(this.#currentType, this.#currentValue)
 
     this.#pushDecl(arrayAccessExpression);
   }
@@ -655,7 +705,7 @@ export default class Parser {
 
     this.#targetExpr = forStatement.from;
 
-    this.parse('KEYWORD', 'to');
+    this.parse(['KEYWORD', 'OPERATOR'], ['to', ',']);
 
     this.#targetExpr = prevTargetExpr;
 
@@ -738,7 +788,7 @@ export default class Parser {
 
     this.#targetExpr = assignmentExpression.right;
 
-    this.parse(['RBRACE', 'OPERATOR'], [undefined, ',']);
+    this.parse(['RBRACE', 'OPERATOR', 'EOL'], [undefined, ',', undefined]);
 
     this.#targetExpr = prevTargetExpr;
 
@@ -857,13 +907,15 @@ export default class Parser {
       return;
     }
     if (this.#peekType === 'OPERATOR' && (this.#peekValue === '.' || this.#peekValue === '->')) {
-      //console.log('member', this.#currentValue);
+      //console.log('member', this.#currentType, this.#currentValue);
 
       this.#memberExpression();
       return;
     }
 
     if (this.#peekType === 'OPERATOR' && this.#peekValue === '[') {
+      //console.log('aa', this.#currentType, this.#currentValue);
+
       this.#arrayAccessExpression();
       return;
     }
@@ -985,7 +1037,12 @@ export default class Parser {
         break;
 
       case 'condition':
+      case 'expect':
         this.#conditionExpression();
+        break;
+
+      case 'struct':
+        this.#structDefinition();
         break;
 
       case 'is':
@@ -1010,12 +1067,15 @@ export default class Parser {
         return;
       }
 
-      //console.log(this.#currentType, this.#currentValue, endType);
+      //console.log(this.#currentType, this.#currentValue, endType, endValue);
+      
 
       if (skipEol && this.#currentType === 'EOL') {
         this.#advance();
         continue;
       }
+
+      //console.log(util.inspect(this.#targetExpr));
 
       switch (this.#currentType) {
         case 'KEYWORD':
