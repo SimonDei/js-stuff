@@ -1,39 +1,23 @@
-function test(element)
-  condition element != null
-  condition element.nodeName == 'P'
+local arr = [1, 2, 3, 4, 5]
 
-  local x = 10
+for i = 0, 10
+  print(i)
+end
 
-  test->querySelector('test')
+for i = 0, #arr - 1
+  print(arr[i])
+end
 
-  if x > test->asdf->querySelector('test') then
-    print('test', 10, 20)
-  else
-    print('asdgr')
+function loopOver(arr, func)
+  local results = []
+  for i = 0, length(arr) - 1
+    results.push(func(arr[i]))
   end
-
-  local a = {
-    test = 10,
-    asfdg = {
-      xvcb = 10,
-      terh = 'tdgs'
-    }
-  }
-
-  window.scrollTo({
-    top = 0,
-    left = 0
-  })
+  return results
 end
 
-local numbers = do
-  local arr = []
-  for i = 0 to 5
-    arr.push(i)
-  end
-  return arr
-end
+local overResult = loopOver(arr, function(item)
+  return 'hallo ' + item
+end)
 
-for i = 0 to #numbers - 1
-  print(numbers[i])
-end
+print(overResult)
