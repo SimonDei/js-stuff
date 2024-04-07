@@ -521,23 +521,31 @@ export default class Walker {
       this.#addSpaces();
     }
 
-    this.#source += `for (let ${this.#targetExpr.indexVar} = `;
+    this.#source += `for (`;
 
-    let prevTargetExpr = this.#targetExpr;
-    this.#targetExpr = this.#targetExpr.from;
+    let prevTargetExpr = null;
+    let prevAllowSpaces = null;
+    let prevAllowSemi = null;
 
-    let prevAllowSpaces = this.#allowSpaces;
-    let prevAllowSemi = this.#allowSemi;
+    if (this.#targetExpr.from.length > 0) {
+      this.#source += `let ${this.#targetExpr.indexVar} = `;
 
-    this.#allowSpaces = false;
-    this.#allowSemi = false;
+      prevTargetExpr = this.#targetExpr;
+      this.#targetExpr = this.#targetExpr.from;
 
-    this.walk();
+      prevAllowSpaces = this.#allowSpaces;
+      prevAllowSemi = this.#allowSemi;
 
-    this.#allowSpaces = prevAllowSpaces;
-    this.#allowSemi = prevAllowSemi;
+      this.#allowSpaces = false;
+      this.#allowSemi = false;
 
-    this.#targetExpr = prevTargetExpr;
+      this.walk();
+
+      this.#allowSpaces = prevAllowSpaces;
+      this.#allowSemi = prevAllowSemi;
+
+      this.#targetExpr = prevTargetExpr;
+    }
 
     this.#source += `; ${this.#targetExpr.indexVar} <= `;
 
@@ -882,7 +890,7 @@ export default class Walker {
       }
     }
 
-    this.#source = '(function() {\n' + stdFunctionSource + this.#source + '})();';
+    this.#source = '(function() {\n' + stdFunctionSource + this.#source + '})();\n';
   }
 
   getSource() {
