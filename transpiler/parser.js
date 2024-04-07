@@ -699,17 +699,25 @@ export default class Parser {
 
     forStatement.indexVar = this.#currentValue;
 
-    this.#advance(2);
+    this.#advance();
+
+    //console.log(this.#currentType, this.#currentValue);
 
     let prevTargetExpr = this.#targetExpr;
 
-    this.#targetExpr = forStatement.from;
+    if (this.#currentType !== 'OPERATOR' || this.#currentValue !== ',') {
+      this.#advance();
 
-    this.parse(['KEYWORD', 'OPERATOR'], ['to', ',']);
+      this.#targetExpr = forStatement.from;
 
-    this.#targetExpr = prevTargetExpr;
+      this.parse(['KEYWORD', 'OPERATOR'], ['to', ',']);
+
+      this.#targetExpr = prevTargetExpr;
+    }
 
     this.#advance();
+
+    //console.log(forStatement);
 
     prevTargetExpr = this.#targetExpr;
 
@@ -732,6 +740,8 @@ export default class Parser {
     this.#advance();
 
     this.#pushDecl(forStatement);
+
+    //console.log(forStatement);
   }
 
   // ===========================================================================
