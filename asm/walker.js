@@ -1,4 +1,4 @@
-import StdDecls from './stdfunctions.js';
+import { MnemonicDecls, StdDecls } from './stdfunctions.js';
 
 export default class Walker {
   static #STDFUNCTIONS = Object.keys(StdDecls);
@@ -37,6 +37,7 @@ export default class Walker {
   #allowSemi = true;
   #walkIndex = 0;
   #walkLength = 0;
+  #foundMnemonicFunctions = [];
   #foundStdFunctions = [];
   #nestedCallStack = 0;
   #isInObject = false;
@@ -162,7 +163,7 @@ export default class Walker {
   variableDeclaration() {
     this.#addSpaces();
 
-    this.#source += `let ${this.#targetExpr.name} = `; //`let ${this.#addJsDocType(this.#targetExpr.varType)} ${this.#targetExpr.name} = `;
+    this.#source += `let ${this.#addJsDocType(this.#targetExpr.varType)} ${this.#targetExpr.name} = `;
 
     const prevTargetExpr = this.#targetExpr;
     this.#targetExpr = this.#targetExpr.body;
@@ -316,62 +317,6 @@ export default class Walker {
     this.#targetExpr = prevTargetExpr;
 
     this.#source += ';\n';
-  }
-
-  callExpression() {
-    if (this.#allowSpaces) {
-      this.#addSpaces();
-    }
-
-    const simpleCallName = this.#targetExpr.name.reduce((acc, val) => acc + val?.value ?? '', '');
-
-    if (Walker.#STDFUNCTIONS.includes(simpleCallName)) {
-      this.#foundStdFunctions.push(simpleCallName);
-      this.#targetExpr.name = [ { type: 'Identifier', value: `__${simpleCallName}`, parent: this.#targetExpr } ];
-    }
-
-    if (this.#targetExpr.async) {
-      this.#source += 'await ';
-    }
-
-    let prevTargetExpr = this.#targetExpr;
-    this.#targetExpr = this.#targetExpr.name;
-
-    this.walk();
-
-    this.#targetExpr = prevTargetExpr;
-
-    this.#source += '(';
-    // this.#source += `${this.#targetExpr.name}(`;
-
-    this.#targetExpr = this.#targetExpr.body;
-
-    const prevAllowSpaces = this.#allowSpaces;
-    const prevAllowSemi = this.#allowSemi;
-
-    this.#separator = ', ';
-    this.#allowSpaces = false;
-    this.#allowSemi = false;
-    this.#nestedCallStack++;
-
-    this.walk();
-
-    this.#targetExpr = prevTargetExpr;
-
-    this.#separator = '';
-    this.#allowSpaces = prevAllowSpaces;
-    this.#allowSemi = prevAllowSemi;
-    this.#nestedCallStack--;
-
-    this.#source += `)`;
-
-    if (this.#nextTargetExpr?.type === 'Operator' && this.#nextTargetExpr?.value === '.') {
-      return;
-    }
-
-    if (this.#allowSemi && this.#nestedCallStack === 0) {
-      this.#source += ';\n';
-    }
   }
 
   memberExpression() {
@@ -877,6 +822,13 @@ export default class Walker {
     }
   }
 
+  checkParametersForStdFunction(callType) {
+    if (Walker.#STDFUNCTIONS.includes(this.#targetExpr.body[0]?.value.toLowerCase())) {
+      this.#foundStdFunctions.push(this.#targetExpr.body[0]?.value.toLowerCase());
+      this.#targetExpr.body[0].value = `__std.${this.#targetExpr.body[0]?.value.toLowerCase()}`;
+    }
+  }
+
   registers = [
     'eax', 'ebx', 'ecx', 'edx',
     'ax', 'bx', 'cx', 'dx',
@@ -901,6 +853,27 @@ export default class Walker {
       }
     }
   }
+  
+  checkVarTypeAndValue(type, value) {
+    switch (type) {
+      case 'byte':
+        return (typeof value === 'number' && value < Math.pow(2, 8)) || typeof value === 'string';
+
+      case 'word':
+        return (typeof value === 'number' && value < Math.pow(2, 16)) || typeof value === 'string';
+        
+      case 'dword':
+        return (typeof value === 'number' && value < Math.pow(2, 32)) || typeof value === 'string';
+  
+      case 'real4':
+        return typeof value === 'number' && value === Math.fround(value);
+
+      case 'real8':
+        return typeof value === 'number' && value === Number.parseFloat(value);
+    }
+
+    return false;
+  }
 
   // =================================================================================
   // =================================================================================
@@ -916,15 +889,42 @@ export default class Walker {
     c: { e: 0xffff, h: 0xff, l: 0xff },
     d: { e: 0xffff, h: 0xff, l: 0xff },
   };
+  function __topLevelRegister(name) {
+    name = name.toLowerCase();
+    if (name.length === 2) {
+      return name.split('')[0];
+    }
+    return name.split('')[1];
+  }
   function __readRegister(name) {
+    name = name.toLowerCase();
+    const targetRegister = __registers[__topLevelRegister(name)];
     if (name.length === 2) {
       if (name.endsWith('h') || name.endsWith('l')) {
-        return __registers[name.split('')[0]][name.split('')[1]];
+        return targetRegister[name.split('')[1]];
       }
-      return ((__registers[name.split('')[0]].h << 8) | __registers[name.split('')[0]].l) >>> 0;
+      return ((targetRegister.h << 8) | targetRegister.l) >>> 0;
     }
     if (name.startsWith('e')) {
-      return ((__registers[name.split('')[1]].e << 16) | (__registers[name.split('')[1]].h << 8) | __registers[name.split('')[1]].l) >>> 0;
+      return ((targetRegister.e << 16) | (targetRegister.h << 8) | targetRegister.l) >>> 0;
+    }
+  }
+  function __writeRegister(name, value) {
+    name = name.toLowerCase();
+    const targetRegister = __registers[__topLevelRegister(name)];
+    if (name.length === 2) {
+      if (name.endsWith('h') || name.endsWith('l')) {
+        targetRegister[name.split('')[1]] = value & 0xff;
+        return;
+      }
+      targetRegister.h = (value >> 8) & 0xff;
+      targetRegister.l = value & 0xff;
+      return;
+    }
+    if (name.startsWith('e')) {
+      targetRegister.e = (value >> 16) & 0xffff;
+      targetRegister.h = (value >> 8) & 0xff;
+      targetRegister.l = value & 0xff;
     }
   }
 `;
@@ -964,9 +964,7 @@ export default class Walker {
     this.#source += `__scope.${this.#targetExpr.name} = function(`;
 
     for (let i = 0; i < this.#targetExpr.parameters.length; i++) {
-      this.#addJsDocType(this.#targetExpr.parameters[i].type);
-
-      this.#source += ` ${this.#targetExpr.parameters[i].name}`;
+      this.#source += `${this.#addJsDocType(this.#targetExpr.parameters[i].type)} ${this.#targetExpr.parameters[i].name}`;
 
       if (i < this.#targetExpr.parameters.length - 1) {
         this.#source += ',';
@@ -1016,11 +1014,79 @@ export default class Walker {
 
     console.log('Found invoke expression');
 
-    this.#foundStdFunctions.push('invoke');
+    this.#foundMnemonicFunctions.push('invoke');
 
     this.#source += `__invoke(`;
 
+    this.checkParametersForStdFunction('invoke');
     this.replaceWithStringNode(0);
+    this.checkParametersForRegisters(1);
+
+    const prevTargetExpr = this.switchTargetExpr(this.#targetExpr.body);
+
+    this.walk();
+
+    this.#targetExpr = prevTargetExpr;
+
+    this.#source += ');\n'
+  }
+
+  pushExpression() {
+    if (this.#allowSpaces) {
+      this.#addSpaces();
+    }
+
+    console.log('Found push expression');
+
+    this.#foundMnemonicFunctions.push('push');
+
+    this.#source += `__push(`;
+
+    this.checkParametersForRegisters();
+
+    const prevTargetExpr = this.switchTargetExpr(this.#targetExpr.body);
+
+    this.walk();
+
+    this.#targetExpr = prevTargetExpr;
+
+    this.#source += ');\n'
+  }
+
+  decExpression() {
+    if (this.#allowSpaces) {
+      this.#addSpaces();
+    }
+
+    console.log('Found dec expression');
+
+    this.#foundMnemonicFunctions.push('dec');
+
+    this.#source += `__dec(`;
+
+    this.replaceWithStringNode(0);
+    
+    const prevTargetExpr = this.switchTargetExpr(this.#targetExpr.body);
+
+    this.walk();
+
+    this.#targetExpr = prevTargetExpr;
+
+    this.#source += ');\n'
+  }
+
+  callExpression() {
+    if (this.#allowSpaces) {
+      this.#addSpaces();
+    }
+
+    console.log('Found call expression');
+
+    this.#foundMnemonicFunctions.push('call');
+
+    this.#source += `__call(`;
+
+    this.checkParametersForStdFunction('call');
     this.checkParametersForRegisters(1);
 
     const prevTargetExpr = this.switchTargetExpr(this.#targetExpr.body);
@@ -1039,7 +1105,7 @@ export default class Walker {
 
     console.log('Found move expression');
 
-    this.#foundStdFunctions.push('mov');
+    this.#foundMnemonicFunctions.push('mov');
 
     this.#source += `__mov(`;
 
@@ -1075,18 +1141,34 @@ export default class Walker {
     }
   }
 
+  addMnemonicFunctions() {
+    let mnemonicFunctionSource = '';
+
+    this.#foundMnemonicFunctions = [...new Set(this.#foundMnemonicFunctions)];
+
+    for (const mnemonicFunction of this.#foundMnemonicFunctions) {
+      if (MnemonicDecls.hasOwnProperty(mnemonicFunction)) {
+        mnemonicFunctionSource += `  const __${mnemonicFunction} = ${MnemonicDecls[mnemonicFunction].toString().replace(/[\r\t\n]/g, '')};\n`;
+      }
+    }
+
+    return mnemonicFunctionSource;
+  }
+
   addStdFunctions() {
-    let stdFunctionSource = '';
+    let stdFunctionSource = '  const __std = {\n';
 
     this.#foundStdFunctions = [...new Set(this.#foundStdFunctions)];
 
     for (const stdFunction of this.#foundStdFunctions) {
       if (StdDecls.hasOwnProperty(stdFunction)) {
-        stdFunctionSource += `  const __${stdFunction} = ${StdDecls[stdFunction].toString().replace(/[\r\t\n]/g, '')};\n`;
+        stdFunctionSource += `    ${stdFunction}: ${StdDecls[stdFunction].toString().replace(/[\r\t\n]/g, '')},\n`;
       }
     }
 
-    this.#source = this.setup() + stdFunctionSource + this.#source + '})();\n';
+    stdFunctionSource += '  };\n';
+
+    this.#source = this.setup() + this.addMnemonicFunctions() + stdFunctionSource + this.#source + '})();\n'; 
   }
 
   getSource() {
