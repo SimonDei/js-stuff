@@ -1,23 +1,40 @@
+const MnemonicDecls = {};
 const StdDecls = {};
 
 // ========================================================================================
-// Universal Functions
+// Interval Mnenomics
 // ========================================================================================
 
-StdDecls.mov = function(dest, source) {
-  
+MnemonicDecls.mov = function(dest, source) {
+  __writeRegister(dest, source);
 };
 
-StdDecls.sub = function(dest, source) {
+MnemonicDecls.push = function(value) {
+  __stack.push(value)
+};
+
+MnemonicDecls.call = function(func) {
+  func();
+};
+
+MnemonicDecls.dec = function(dest) {
+  __writeRegister(dest, __readRegister(dest) - 1);
+};
+
+MnemonicDecls.sub = function(dest, source) {
   dest = source;
 };
 
-StdDecls.log = function(...dest) {
-  console.log(...dest);
-};
-
-StdDecls.invoke = function(funcName, ...args) {
+MnemonicDecls.invoke = function(funcName, ...args) {
   __scope[funcName].call(__scope, ...args);
 };
 
-export default StdDecls;
+// ========================================================================================
+// Standard Functions
+// ========================================================================================
+
+StdDecls.log = function() {
+  console.log(__stack.pop());
+};
+
+export { MnemonicDecls, StdDecls };
