@@ -77,7 +77,7 @@ export default class Parser {
   }
 
   get #currentValue() {
-    return this.#tokens[this.#index].value?.toUpperCase();
+    return this.#tokens[this.#index].value;
   }
 
   #pushDecl(decl, propName) {
@@ -93,56 +93,33 @@ export default class Parser {
   // ===========================================================================
   // ===========================================================================
 
-  #globalsDeclaration() {
-    const globalDeclaration = {
-      type: 'GlobalsDeclaration',
-      body: [],
-      parent: this.#targetExpr
-    };
-
-    this.#advance();
-
-    this.#targetExpr = globalDeclaration;
-
-    this.parse('KEYWORD', 'end');
-
-    this.#targetExpr = globalDeclaration.parent;
-
-    this.#advance();
-
-    this.#pushDecl(globalDeclaration);
-  }
-
-  // ===========================================================================
-  // ===========================================================================
-
   #variableDeclaration() {
-    /** @type {VariableDeclaration} */
-    const variableDecl = {
+    const decl = {
       type: 'VariableDeclaration',
-      varType: undefined,
+      varType: '',
       name: '',
       body: [],
       parent: this.#targetExpr
     }
+    console.log(decl);
 
-    this.#advance();
+    decl.name = this.#currentValue;
 
-    variableDecl.name = this.#currentValue;
+    this.#advance(); // var type
 
-    if (this.#peek().type === 'OPERATOR' && this.#peek().value?.toLowerCase() === '=') {
-      this.#advance(2);
+    decl.varType = this.#currentValue;
 
-      this.#targetExpr = variableDecl;
+    this.#advance(); // var value
 
-      this.parse('EOL');
+    console.log(decl);
 
-      this.#targetExpr = variableDecl.parent;
-    }
+    this.#targetExpr = decl.body;
 
-    this.#advance();
+    this.parse('EOL');
 
-    this.#pushDecl(variableDecl);
+    this.#targetExpr = decl.parent;
+
+    this.#pushDecl(decl);
   }
   
   // ===========================================================================
@@ -161,11 +138,13 @@ export default class Parser {
 
     this.#targetExpr = decl.body;
 
-    this.parse('KEYWORD', 'end');
+    this.parse(['KEYWORD', 'KEYWORD'], ['end', '.code']);
 
     this.#targetExpr = decl.parent;
 
-    this.#advance(); // next token
+    console.log(decl);
+
+    //this.#advance(); // next token
 
     this.#pushDecl(decl);
   }
@@ -434,73 +413,6 @@ export default class Parser {
     this.#pushDecl(ifStatement);
   }
 
-  // ===========================================================================
-  // ===========================================================================
-
-  #callExpression(nested = false) {
-    //console.log(this.#targetExpr);
-    const callExpression = {
-      type: 'CallExpression',
-      name: [],
-      async: false,
-      body: [],
-      parent: this.#targetExpr
-    };
-
-    //console.log('in call', this.#currentValue);
-
-    if (this.#currentType === 'KEYWORD' && this.#currentValue.toLowerCase() === 'await') {
-      callExpression.async = true;
-      if (this.#currentProcedure) {
-        this.#currentProcedure.async = true;
-      }
-      this.#advance();
-    }
-
-    this.#targetExpr = callExpression.name;
-
-    //console.log(this.#currentType, this.#currentValue)
-
-    this.parse('LPAREN');
-
-    this.#targetExpr = callExpression.parent;
-
-    //console.log(callExpression);
-
-    this.#advance();
-
-    //console.log(this.#currentType, this.#currentValue)
-
-    this.#targetExpr = callExpression;
-
-    this.parse('RPAREN');
-
-    this.#targetExpr = callExpression.parent;
-
-    /*
-    while (this.#currentType !== 'RPAREN') {
-      if (this.#currentType === 'OPERATOR' && this.#currentValue === ',') {
-        this.#advance();
-        continue;
-      }
-
-      if (this.#currentType === 'KEYWORD' && this.#currentValue.toLowerCase() === 'function') {
-        callExpression.parameters.push(this.#functionReference());
-        continue;
-      }
-
-      callExpression.parameters.push(this.#staticValue());
-      this.#advance();
-    }
-    */
-
-    this.#advance();
-
-    this.#pushDecl(callExpression);
-
-    //console.log(this.#targetExpr);
-  }
-
   #structDefinition() {
     const structDefinition = {
       type: 'StructDefinition',
@@ -657,9 +569,69 @@ export default class Parser {
     this.#pushDecl(decl);
   }
 
+  #callExpression() {
+    const decl = {
+      type: 'CallExpression',
+      body: [],
+      parent: this.#targetExpr
+    };
+
+    this.#advance(); // expression name
+
+    this.#targetExpr = decl.body;
+
+    this.parse('EOL');
+
+    this.#advance(); // next line
+
+    this.#targetExpr = decl.parent;
+
+    this.#pushDecl(decl);
+  }
+
   #invokeExpression() {
     const decl = {
       type: 'InvokeExpression',
+      body: [],
+      parent: this.#targetExpr
+    };
+
+    this.#advance(); // expression name
+
+    this.#targetExpr = decl.body;
+
+    this.parse('EOL');
+
+    this.#advance(); // next line
+
+    this.#targetExpr = decl.parent;
+
+    this.#pushDecl(decl);
+  }
+
+  #pushExpression() {
+    const decl = {
+      type: 'PushExpression',
+      body: [],
+      parent: this.#targetExpr
+    };
+
+    this.#advance(); // expression name
+
+    this.#targetExpr = decl.body;
+
+    this.parse('EOL');
+
+    this.#advance(); // next line
+
+    this.#targetExpr = decl.parent;
+
+    this.#pushDecl(decl);
+  }
+
+  #decExpression() {
+    const decl = {
+      type: 'DecExpression',
       body: [],
       parent: this.#targetExpr
     };
@@ -904,6 +876,11 @@ export default class Parser {
       return;
     }
 
+    if (this.#peekType === 'KEYWORD' && ['BYTE', 'WORD', 'DWORD', 'QWORD', 'REAL4', 'REAL8'].includes(this.#peekValue)) {
+      this.#variableDeclaration();
+      return;
+    }
+
     const identifier = {
       type: 'Identifier',
       value: '',
@@ -989,15 +966,24 @@ export default class Parser {
       case 'add':
       case 'sub':
       case 'inc':
-      case 'dec':
-      case 'call':
-      case 'push':
       case 'log':
         this.#expression();
         break;
 
+      case 'dec':
+        this.#decExpression();
+        break;
+
       case 'mov':
         this.#moveExpression();
+        break;
+
+      case 'push':
+        this.#pushExpression();
+        break;
+
+      case 'call':
+        this.#callExpression();
         break;
 
       case 'invoke':
