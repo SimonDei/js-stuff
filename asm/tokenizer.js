@@ -9,7 +9,7 @@ export default class Scanner {
     '.data', '.code', 'end',
     'byte', 'word', 'dword', 'qword', 'real4', 'real8',
     'proc', 'endp',
-    'mov', 'lea', 'add', 'sub', 'inc', 'dec', 'call', 'push', 'invoke', 'log'
+    'mov', 'lea', 'add', 'sub', 'inc', 'dec', 'call', 'push', 'invoke'
   ];
 
   /** @type {Token[]} */
@@ -93,7 +93,7 @@ export default class Scanner {
         continue;
       }
 
-      if (this.#isNumber(token) && !this.#isNumber(peek)) {
+      if (this.#isNumber(token) && !this.#isNumber(token + peek)) {
         this.#tokens.push({ type: 'NUMBER', value: token });
 
         token = '';
