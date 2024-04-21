@@ -1,15 +1,21 @@
-.data
-  myString byte "Hallo Welt"
-  myValue real4 35.54
+.DATA
+    myString byte "Hallo Welt"
+    myValue real4 35.54
+    myElement byte ?
 
-.code
-  MyProcedure proc a:dword, b:dword
-    push a
-    call log
-    push b
-    call log
-  MyProcedure endp
+.CODE
+    Print proc str:byte
+        push str
+        call log
+    Print endp
 
-  mov eax, 256
-  invoke MyProcedure, eax, 50
-end
+    Query proc selector:byte
+        invoke QuerySelector, selector
+        .erre r1, "Failed to load"
+    Query endp
+
+    mov r2, catstr "test", "123"
+
+    invoke Query, "body"
+    invoke log, r1
+END
