@@ -1,7 +1,8 @@
 import { MnemonicDecls, StdDecls } from './stdfunctions.js';
 
 export default class Walker {
-  static #STDFUNCTIONS = Object.keys(StdDecls);
+  static #CallFunctions = Object.keys(StdDecls.call);
+  static #InvokeFunctions = Object.keys(StdDecls.invoke);
 
   static #NATIVE_TYPES = {
     'nothing': 'void',
@@ -30,6 +31,8 @@ export default class Walker {
   #nextTargetExpr = {};
   #parentTargetExpr = [];
   #targetExpr = [];
+  #stack = [];
+  #definedVariableNames = [];
   #typesEnabled = false;
   #depth = 1;
   #separator = '';
@@ -38,7 +41,8 @@ export default class Walker {
   #walkIndex = 0;
   #walkLength = 0;
   #foundMnemonicFunctions = [];
-  #foundStdFunctions = [];
+  #foundStdCallFunctions = [];
+  #foundStdInvokeFunctions = [];
   #nestedCallStack = 0;
   #isInObject = false;
   #isInMemberExpression = false;
@@ -163,7 +167,8 @@ export default class Walker {
   variableDeclaration() {
     this.#addSpaces();
 
-    this.#source += `let ${this.#addJsDocType(this.#targetExpr.varType)} ${this.#targetExpr.name} = `;
+    this.#source += `${this.#addJsDocType(this.#targetExpr.varType)} __vars.${this.#targetExpr.name} = `;
+    this.#definedVariableNames.push(this.#targetExpr.name);
 
     const prevTargetExpr = this.#targetExpr;
     this.#targetExpr = this.#targetExpr.body;
@@ -171,9 +176,11 @@ export default class Walker {
     this.#separator = ' ';
     this.#allowSpaces = false;
     this.#allowSemi = false;
+    this.#stack.push('VAR');
 
     this.walk();
 
+    this.#stack.pop();
     this.#separator = '';
     this.#allowSpaces = true;
     this.#allowSemi = true;
@@ -750,13 +757,13 @@ export default class Walker {
 
       return;
     }
+    
+    if (this.registers.includes(this.#targetExpr.value.toLowerCase())) {
+      this.#targetExpr.value = `__readRegister('${this.#targetExpr.value.toLowerCase()}')`;
+    }
 
-    if (this.#targetExpr.parent.type === 'GlobalsDeclaration') {
-      if (this.#allowSpaces) {
-        this.#addSpaces();
-      }
-
-      this.#source += 'const ';
+    if (this.#definedVariableNames.includes(this.#targetExpr.value)) {
+      this.#targetExpr.value = `__vars.${this.#targetExpr.value}`;
     }
 
     this.#source += this.#targetExpr.value;
@@ -768,6 +775,11 @@ export default class Walker {
 
   operator() {
     if (this.#isInMemberExpression && this.#isInAssignmentExpression && this.#targetExpr.value === ',') {
+      return;
+    }
+
+    if (this.#targetExpr.value === '?' && this.#stack.at(-1) === 'VAR') {
+      this.#source += 'null';
       return;
     }
 
@@ -807,6 +819,14 @@ export default class Walker {
     this.#source += 'debugger;\n';
   }
 
+  registers = [
+    'eax', 'ebx', 'ecx', 'edx',
+    'ax', 'bx', 'cx', 'dx',
+    'ah', 'bh', 'ch', 'dh',
+    'al', 'bl', 'cl', 'dl',
+    'r1', 'r2', 'r3', 'r4'
+  ];
+
   switchTargetExpr(newTargetExpr) {
     const prevTargetExpr = this.#targetExpr;
     this.#targetExpr = newTargetExpr;
@@ -822,19 +842,32 @@ export default class Walker {
     }
   }
 
-  checkParametersForStdFunction(callType) {
-    if (Walker.#STDFUNCTIONS.includes(this.#targetExpr.body[0]?.value.toLowerCase())) {
-      this.#foundStdFunctions.push(this.#targetExpr.body[0]?.value.toLowerCase());
-      this.#targetExpr.body[0].value = `__std.${this.#targetExpr.body[0]?.value.toLowerCase()}`;
+  replaceWithStringNodeIfRegister(index) {
+    if (this.#targetExpr.body[index].type !== 'String'
+      && this.registers.includes(this.#targetExpr.body[index].value?.toLowerCase())) {
+      this.#targetExpr.body[index] = {
+        type: 'String',
+        value: `'${this.#targetExpr.body[index].value}'`
+      };
     }
   }
 
-  registers = [
-    'eax', 'ebx', 'ecx', 'edx',
-    'ax', 'bx', 'cx', 'dx',
-    'ah', 'bh', 'ch', 'dh',
-    'al', 'bl', 'cl', 'dl'
-  ];
+  checkParametersForStdFunction(callType) {
+    if (callType === 'call') {
+      if (Walker.#CallFunctions.includes(this.#targetExpr.body[0]?.value)) {
+        this.#foundStdCallFunctions.push(this.#targetExpr.body[0]?.value);
+        this.#targetExpr.body[0].value = `__std.call.${this.#targetExpr.body[0]?.value}`;
+        return true;
+      }
+    } else {
+      if (Walker.#InvokeFunctions.includes(this.#targetExpr.body[0]?.value)) {
+        this.#foundStdInvokeFunctions.push(this.#targetExpr.body[0]?.value);
+        this.#targetExpr.body[0].value = `__std.invoke.${this.#targetExpr.body[0]?.value}`;
+        return true;
+      }
+    }
+    return false;
+  }
 
   checkParametersForRegisters(startIndex, endIndex) {
     if (!startIndex) {
@@ -883,11 +916,13 @@ export default class Walker {
     let start = `(function() {
   const __scope = {};
   const __stack = [];
+  const __vars = {};
   const __registers = {
     a: { e: 0xffff, h: 0xff, l: 0xff },
     b: { e: 0xffff, h: 0xff, l: 0xff },
     c: { e: 0xffff, h: 0xff, l: 0xff },
     d: { e: 0xffff, h: 0xff, l: 0xff },
+    r: { '1': 0, '2': 0, '3': 0, '4': 0 }
   };
   function __topLevelRegister(name) {
     name = name.toLowerCase();
@@ -900,7 +935,7 @@ export default class Walker {
     name = name.toLowerCase();
     const targetRegister = __registers[__topLevelRegister(name)];
     if (name.length === 2) {
-      if (name.endsWith('h') || name.endsWith('l')) {
+      if (/[\\dhl]$/i.test(name)) {
         return targetRegister[name.split('')[1]];
       }
       return ((targetRegister.h << 8) | targetRegister.l) >>> 0;
@@ -913,6 +948,9 @@ export default class Walker {
     name = name.toLowerCase();
     const targetRegister = __registers[__topLevelRegister(name)];
     if (name.length === 2) {
+      if (/^r/i.test(name)) {
+        targetRegister[name.split('')[1]] = value;
+      }
       if (name.endsWith('h') || name.endsWith('l')) {
         targetRegister[name.split('')[1]] = value & 0xff;
         return;
@@ -991,8 +1029,8 @@ export default class Walker {
 
     console.log('Found expression');
 
-    if (Walker.#STDFUNCTIONS.includes(this.#targetExpr.mnemonic.toLowerCase())) {
-      this.#foundStdFunctions.push(this.#targetExpr.mnemonic.toLowerCase());
+    if (Walker.#InvokeFunctions.includes(this.#targetExpr.mnemonic.toLowerCase())) {
+      this.#foundStdInvokeFunctions.push(this.#targetExpr.mnemonic.toLowerCase());
       this.#targetExpr.mnemonic = `__${this.#targetExpr.mnemonic.toLowerCase()}`;
     }
 
@@ -1018,8 +1056,10 @@ export default class Walker {
 
     this.#source += `__invoke(`;
 
-    this.checkParametersForStdFunction('invoke');
-    this.replaceWithStringNode(0);
+    const isStdFunc = this.checkParametersForStdFunction('invoke');
+    if (!isStdFunc) {
+      this.replaceWithStringNode(0);
+    }
     this.checkParametersForRegisters(1);
 
     const prevTargetExpr = this.switchTargetExpr(this.#targetExpr.body);
@@ -1053,6 +1093,24 @@ export default class Walker {
     this.#source += ');\n'
   }
 
+  incExpression() {
+    if (this.#allowSpaces) {
+      this.#addSpaces();
+    }
+
+    console.log('Found inc expression');
+
+    if (this.#targetExpr.body.length !== 1) {
+      throw new Error('Inc Expression can only have a body of length 1!');
+    }
+
+    if (this.registers.includes(this.#targetExpr.body[0].value?.toLowerCase())) {
+      this.#source += `__writeRegister(${this.#targetExpr.body[0].value}, __readRegister(${this.#targetExpr.body[0].value}) + 1);\n`;
+    } else {
+      this.#source += `${this.#targetExpr.body[0].value} += 1;\n`;
+    }
+  }
+
   decExpression() {
     if (this.#allowSpaces) {
       this.#addSpaces();
@@ -1060,13 +1118,231 @@ export default class Walker {
 
     console.log('Found dec expression');
 
-    this.#foundMnemonicFunctions.push('dec');
+    if (this.#targetExpr.body.length !== 1) {
+      throw new Error('Dec Expression can only have a body of length 1!');
+    }
 
-    this.#source += `__dec(`;
+    if (this.registers.includes(this.#targetExpr.body[0].value?.toLowerCase())) {
+      this.#source += `__writeRegister('${this.#targetExpr.body[0].value}', __readRegister('${this.#targetExpr.body[0].value}') - 1);\n`;
+    } else {
+      this.#source += `${this.#targetExpr.body[0].value} -= 1;\n`;
+    }
+  }
 
-    this.replaceWithStringNode(0);
-    
+  sizestrStatement() {
+    console.log('Found sizestr expression');
+
+    this.#foundMnemonicFunctions.push('sizestr');
+
+    this.#source += '__sizestr(';
+
     const prevTargetExpr = this.switchTargetExpr(this.#targetExpr.body);
+
+    this.walk();
+
+    this.#targetExpr = prevTargetExpr;
+
+    this.#source += ')';
+  }
+
+  substrStatement() {
+    console.log('Found substr expression');
+
+    this.#foundMnemonicFunctions.push('substr');
+
+    this.#source += '__substr(';
+
+    const prevTargetExpr = this.switchTargetExpr([{type: 'Identifier', value: this.#targetExpr.variable}]);
+
+    this.walk();
+
+    this.#targetExpr = prevTargetExpr;
+
+    this.#source += `, ${this.#targetExpr.position}${this.#targetExpr?.length ? `, ${this.#targetExpr?.length}` : ''})`;
+  }
+
+  catstrStatement() {
+    console.log('Found catstr expression');
+
+    this.#foundMnemonicFunctions.push('catstr');
+    
+    this.#source += '__catstr(';
+
+    let prevTargetExpr = this.switchTargetExpr([{type: 'Identifier', value: this.#targetExpr.variable1}]);
+    
+    this.walk();
+
+    this.#targetExpr = prevTargetExpr;
+
+    this.#source += ', ';
+
+    prevTargetExpr = this.switchTargetExpr([{type: 'Identifier', value: this.#targetExpr.variable2}]);
+    
+    this.walk();
+
+    this.#targetExpr = prevTargetExpr;
+    
+    this.#source += ')';
+  }
+
+  errExpression() {
+    if (this.#allowSpaces) {
+      this.#addSpaces();
+    }
+
+    console.log('Found err expression');
+
+    this.#source += `throw new Error(${this.#targetExpr.message});\n`;
+  }
+
+  errbExpression() {
+    if (this.#allowSpaces) {
+      this.#addSpaces();
+    }
+
+    console.log('Found errb expression');
+
+    this.#source += 'if (';
+    
+    const prevTargetExpr = this.switchTargetExpr([{type: 'Identifier', value: this.#targetExpr.variable}]);
+
+    this.walk();
+
+    this.#targetExpr = prevTargetExpr;
+
+    this.#source += '.length === 0) {\n';
+
+    this.#depth++;
+
+    if (this.#allowSpaces) {
+      this.#addSpaces();
+    }
+
+    this.#source += `throw new Error(${this.#targetExpr.message});\n`;
+
+    this.#depth--;
+
+    if (this.#allowSpaces) {
+      this.#addSpaces();
+    }
+
+    this.#source += '}\n';
+  }
+
+  errnbExpression() {
+    if (this.#allowSpaces) {
+      this.#addSpaces();
+    }
+
+    console.log('Found errnb expression');
+
+    this.#source += 'if (';
+    
+    const prevTargetExpr = this.switchTargetExpr([{type: 'Identifier', value: this.#targetExpr.variable}]);
+
+    this.walk();
+
+    this.#targetExpr = prevTargetExpr;
+
+    this.#source += '.length !== 0) {\n';
+
+    this.#depth++;
+
+    if (this.#allowSpaces) {
+      this.#addSpaces();
+    }
+
+    this.#source += `throw new Error(${this.#targetExpr.message});\n`;
+
+    this.#depth--;
+
+    if (this.#allowSpaces) {
+      this.#addSpaces();
+    }
+
+    this.#source += '}\n';
+  }
+
+  erreExpression() {
+    if (this.#allowSpaces) {
+      this.#addSpaces();
+    }
+
+    console.log('Found erre expression');
+
+    this.#source += 'if (!';
+    
+    const prevTargetExpr = this.switchTargetExpr([{type: 'Identifier', value: this.#targetExpr.variable}]);
+
+    this.walk();
+
+    this.#targetExpr = prevTargetExpr;
+
+    this.#source += ') {\n';
+
+    this.#depth++;
+
+    if (this.#allowSpaces) {
+      this.#addSpaces();
+    }
+
+    this.#source += `throw new Error(${this.#targetExpr.message});\n`;
+
+    this.#depth--;
+
+    if (this.#allowSpaces) {
+      this.#addSpaces();
+    }
+
+    this.#source += '}\n';
+  }
+
+  errnzExpression() {
+    if (this.#allowSpaces) {
+      this.#addSpaces();
+    }
+
+    console.log('Found errnz expression');
+
+    this.#source += `if (`;
+
+    const prevTargetExpr = this.switchTargetExpr([{type: 'Identifier', value: this.#targetExpr.variable}]);
+
+    this.walk();
+
+    this.#targetExpr = prevTargetExpr;
+
+    this.#source += `) {\n`;
+
+    this.#depth++;
+
+    if (this.#allowSpaces) {
+      this.#addSpaces();
+    }
+    
+    this.#source += `throw new Error(${this.#targetExpr.message});\n`
+
+    this.#depth--;
+
+    if (this.#allowSpaces) {
+      this.#addSpaces();
+    }
+    
+    this.#source += `}\n`;
+  }
+
+  echoExpression() {
+    if (this.#allowSpaces) {
+      this.#addSpaces();
+    }
+
+    console.log('Found echo expression');
+
+    this.#foundMnemonicFunctions.push('echo');
+
+    this.#source += `__echo(`;
+
+    const prevTargetExpr = this.switchTargetExpr([{type: 'Identifier', value: this.#targetExpr.message}]);
 
     this.walk();
 
@@ -1109,7 +1385,7 @@ export default class Walker {
 
     this.#source += `__mov(`;
 
-    this.replaceWithStringNode(0);
+    this.replaceWithStringNodeIfRegister(0);
 
     const prevTargetExpr = this.switchTargetExpr(this.#targetExpr.body);
 
@@ -1118,6 +1394,82 @@ export default class Walker {
     this.#targetExpr = prevTargetExpr;
 
     this.#source += ');\n'
+  }
+
+  jumpExpression() {
+    if (this.#allowSpaces) {
+      this.#addSpaces();
+    }
+
+    console.log('Found jump expression');
+
+    this.#foundMnemonicFunctions.push('jmp');
+
+    this.#source += `__jmp(`;
+
+    const prevTargetExpr = this.switchTargetExpr(this.#targetExpr.body);
+
+    this.walk();
+
+    this.#targetExpr = prevTargetExpr;
+
+    this.#source += ');\n'
+  }
+
+  labelDeclaration() {
+    this.#addSpaces();
+
+    this.#source += `const ${this.#targetExpr.name} = function() {\n`;
+
+    const prevTargetExpr = this.switchTargetExpr(this.#targetExpr.body);
+
+    this.#depth++;
+    this.walk();
+    this.#depth--;
+
+    this.#targetExpr = prevTargetExpr;
+
+    this.#addSpaces();
+
+    this.#source += '};\n';
+
+    this.#addSpaces();
+
+    this.#source += `${this.#targetExpr.name}();\n`;
+  }
+
+  whileExpression() {
+    this.#addSpaces();
+
+    this.#source += 'while (';
+
+    let prevTargetExpr = this.switchTargetExpr(this.#targetExpr.left);
+
+    this.walk();
+
+    this.#targetExpr = prevTargetExpr;
+
+    this.#source += ` ${this.#targetExpr.operator} `;
+
+    prevTargetExpr = this.switchTargetExpr(this.#targetExpr.right);
+
+    this.walk();
+
+    this.#targetExpr = prevTargetExpr;
+    
+    this.#source += ') {\n';
+
+    prevTargetExpr = this.switchTargetExpr(this.#targetExpr.body);
+
+    this.#depth++;
+    this.walk();
+    this.#depth--;
+
+    this.#targetExpr = prevTargetExpr;
+
+    this.#addSpaces();
+
+    this.#source += '}\n';
   }
 
   walk() {
@@ -1156,17 +1508,26 @@ export default class Walker {
   }
 
   addStdFunctions() {
-    let stdFunctionSource = '  const __std = {\n';
+    let stdFunctionSource = '  const __std = {\n    call: {\n';
 
-    this.#foundStdFunctions = [...new Set(this.#foundStdFunctions)];
+    this.#foundStdCallFunctions = [...new Set(this.#foundStdCallFunctions)];
+    this.#foundStdInvokeFunctions = [...new Set(this.#foundStdInvokeFunctions)];
 
-    for (const stdFunction of this.#foundStdFunctions) {
-      if (StdDecls.hasOwnProperty(stdFunction)) {
-        stdFunctionSource += `    ${stdFunction}: ${StdDecls[stdFunction].toString().replace(/[\r\t\n]/g, '')},\n`;
+    for (const stdFunction of this.#foundStdCallFunctions) {
+      if (StdDecls.call.hasOwnProperty(stdFunction)) {
+        stdFunctionSource += `      ${stdFunction}: ${StdDecls.call[stdFunction].toString().replace(/[\r\t\n]/g, '')},\n`;
+      }
+    }
+    
+    stdFunctionSource += '    },\n    invoke: {\n';
+
+    for (const stdFunction of this.#foundStdInvokeFunctions) {
+      if (StdDecls.invoke.hasOwnProperty(stdFunction)) {
+        stdFunctionSource += `      ${stdFunction}: ${StdDecls.invoke[stdFunction].toString().replace(/[\r\t\n]/g, '')},\n`;
       }
     }
 
-    stdFunctionSource += '  };\n';
+    stdFunctionSource += '    }\n  };\n';
 
     this.#source = this.setup() + this.addMnemonicFunctions() + stdFunctionSource + this.#source + '})();\n'; 
   }
