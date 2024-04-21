@@ -9,7 +9,13 @@ export default class Scanner {
     '.data', '.code', 'end',
     'byte', 'word', 'dword', 'qword', 'real4', 'real8',
     'proc', 'endp',
-    'mov', 'lea', 'add', 'sub', 'inc', 'dec', 'call', 'push', 'invoke'
+    'mov', 'lea', 'add', 'sub', 'inc', 'dec', 'call', 'push', 'invoke', 'jmp',
+    '.while', '.endw',
+    '.repeat', '.until',
+    '.if', '.else', '.endif',
+    '.err', '.errnz', '.errb', '.errnb', '.erre',
+    'sizestr', 'substr', 'catstr',
+    'echo'
   ];
 
   /** @type {Token[]} */
@@ -28,7 +34,7 @@ export default class Scanner {
   }
 
   #isOperator(str) {
-    return /^[!+*\/\-=.,:<>\[\]]+$/.test(str);
+    return /^[?!+*\/\-=.,:<>\[\]]+$/.test(str);
   }
 
   /**
@@ -40,8 +46,6 @@ export default class Scanner {
 
     for (let index = 0; index < str.length; index++) {
       token += str[index];
-
-      console.log(token);
 
       if (token === ';') {
         token = '';
