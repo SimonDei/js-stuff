@@ -1,9 +1,9 @@
-.DATA
+.data
     myString byte "Hallo Welt"
     myValue real4 35.54
     myElement byte ?
 
-.CODE
+.code
     Print proc str:byte
         push str
         call log
@@ -18,4 +18,4 @@
 
     invoke Query, "body"
     invoke log, r1
-END
+end
