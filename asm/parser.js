@@ -376,7 +376,7 @@ export default class Parser {
 
     this.#targetExpr = ifStatement.testRight;
 
-    this.parse('KEYWORD', 'then');
+    this.parse('EOL');
 
     this.#targetExpr = ifStatement.parent;
 
@@ -395,15 +395,15 @@ export default class Parser {
 
     this.#targetExpr = ifStatement.then;
 
-    const { endValue } = this.parse('KEYWORD', ['end', 'else']);
+    const { endValue } = this.parse('KEYWORD', ['.endif', '.else']);
 
-    if (endValue === 'else') {
+    if (endValue === '.else') {
       this.#advance();
 
       ifStatement.else = [];
       this.#targetExpr = ifStatement.else;
 
-      this.parse('KEYWORD', 'end');
+      this.parse('KEYWORD', '.endif');
     }
 
     this.#advance();
@@ -569,6 +569,130 @@ export default class Parser {
     this.#pushDecl(decl);
   }
 
+  #errExpression() {
+    const decl = {
+      type: 'ErrExpression',
+      message: '',
+      parent: this.#targetExpr
+    };
+
+    this.#advance(); // expression name
+
+    decl.message = this.#currentValue;
+
+    this.#advance();
+
+    this.#pushDecl(decl);
+  }
+
+  #errbExpression() {
+    const decl = {
+      type: 'ErrbExpression',
+      variable: '',
+      message: '',
+      parent: this.#targetExpr
+    };
+
+    this.#advance(); // expression name
+
+    decl.variable = this.#currentValue;
+
+    if (this.#peekType !== 'EOL') {
+      this.#advance(2);
+
+      decl.message = this.#currentValue;
+    }
+
+    this.#advance();
+
+    this.#pushDecl(decl);
+  }
+
+  #errnbExpression() {
+    const decl = {
+      type: 'ErrnbExpression',
+      variable: '',
+      message: '',
+      parent: this.#targetExpr
+    };
+
+    this.#advance(); // expression name
+
+    decl.variable = this.#currentValue;
+
+    if (this.#peekType !== 'EOL') {
+      this.#advance(2);
+
+      decl.message = this.#currentValue;
+    }
+
+    this.#advance();
+
+    this.#pushDecl(decl);
+  }
+
+  #errnzExpression() {
+    const decl = {
+      type: 'ErrnzExpression',
+      variable: '',
+      message: '',
+      parent: this.#targetExpr
+    };
+
+    this.#advance(); // expression name
+
+    decl.variable = this.#currentValue;
+
+    if (this.#peekType !== 'EOL') {
+      this.#advance(2);
+
+      decl.message = this.#currentValue;
+    }
+
+    this.#advance();
+
+    this.#pushDecl(decl);
+  }
+
+  #erreExpression() {
+    const decl = {
+      type: 'ErreExpression',
+      variable: '',
+      message: '',
+      parent: this.#targetExpr
+    };
+
+    this.#advance(); // expression name
+
+    decl.variable = this.#currentValue;
+
+    if (this.#peekType !== 'EOL') {
+      this.#advance(2);
+
+      decl.message = this.#currentValue;
+    }
+
+    this.#advance();
+
+    this.#pushDecl(decl);
+  }
+
+  #echoExpression() {
+    const decl = {
+      type: 'EchoExpression',
+      message: '',
+      parent: this.#targetExpr
+    };
+
+    this.#advance(); // expression name
+
+    decl.message = this.#currentValue;
+
+    this.#advance();
+
+    this.#pushDecl(decl);
+  }
+
   #callExpression() {
     const decl = {
       type: 'CallExpression',
@@ -629,6 +753,47 @@ export default class Parser {
     this.#pushDecl(decl);
   }
 
+  #jumpExpression() {
+    const decl = {
+      type: 'JumpExpression',
+      body: [],
+      parent: this.#targetExpr
+    };
+
+    this.#advance(); // expression name
+
+    this.#targetExpr = decl.body;
+
+    this.parse('EOL');
+
+    this.#advance(); // next line
+
+    this.#targetExpr = decl.parent;
+
+    this.#pushDecl(decl);
+  }
+
+  #incExpression() {
+    const decl = {
+      type: 'IncExpression',
+      body: [],
+      parent: this.#targetExpr
+    };
+
+    this.#advance(); // expression name
+
+    this.#targetExpr = decl.body;
+
+    this.parse('EOL');
+
+    this.#advance(); // next line
+
+    this.#targetExpr = decl.parent;
+
+    this.#pushDecl(decl);
+  }
+
+
   #decExpression() {
     const decl = {
       type: 'DecExpression',
@@ -645,6 +810,43 @@ export default class Parser {
     this.#advance(); // next line
 
     this.#targetExpr = decl.parent;
+
+    this.#pushDecl(decl);
+  }
+
+  #whileExpression() {
+    const decl = {
+      type: 'WhileExpression',
+      left: [],
+      operator: '',
+      right: [],
+      body: [],
+      parent: this.#targetExpr
+    };
+
+    this.#advance(); // test left
+
+    this.#targetExpr = decl.left;
+
+    this.parse('OPERATOR', ['>', '<', '>=', '<=', '==', '!=']);
+
+    decl.operator = this.#currentValue;
+
+    this.#advance(); // test right
+
+    this.#targetExpr = decl.right;
+
+    this.parse('EOL');
+
+    this.#advance();
+
+    this.#targetExpr = decl.body;
+
+    this.parse('KEYWORD', '.endw');
+
+    this.#targetExpr = decl.parent;
+
+    this.#advance();
 
     this.#pushDecl(decl);
   }
@@ -865,6 +1067,94 @@ export default class Parser {
     this.#pushDecl(operator);
   }
 
+  #labelDeclaration() {
+    const decl = {
+      type: 'LabelDeclaration',
+      name: '',
+      body: [],
+      parent: this.#targetExpr
+    };
+
+    decl.name = this.#currentValue;
+
+    this.#advance(2);
+
+    this.#targetExpr = decl.body;
+
+    this.parse('KEYWORD', 'jmp');
+
+    this.#targetExpr = decl.parent;
+
+    this.#pushDecl(decl);
+  }
+
+  #sizestrStatement() {
+    const decl = {
+      type: 'SizestrStatement',
+      body: [],
+      parent: this.#targetExpr
+    };
+
+    this.#advance();
+
+    this.#targetExpr = decl.body;
+
+    this.parse('EOL');
+
+    this.#targetExpr = decl.parent;
+
+    this.#pushDecl(decl);
+  }
+
+  #substrStatement() {
+    const decl = {
+      type: 'SubstrStatement',
+      variable: '',
+      position: '',
+      length: undefined,
+      parent: this.#targetExpr
+    };
+
+    this.#advance();
+
+    decl.variable = this.#currentValue;
+
+    this.#advance(2);
+
+    decl.position = this.#currentValue;
+
+    if (this.#peekType !== 'EOL') {
+      this.#advance(2);
+
+      decl.length = this.#currentValue;
+    }
+
+    this.#advance();
+
+    this.#pushDecl(decl);
+  }
+
+  #catstrStatement() {
+    const decl = {
+      type: 'CatstrStatement',
+      variable1: '',
+      variable2: '',
+      parent: this.#targetExpr
+    };
+
+    this.#advance();
+
+    decl.variable1 = this.#currentValue;
+
+    this.#advance(2);
+
+    decl.variable2 = this.#currentValue;
+
+    this.#advance();
+
+    this.#pushDecl(decl);
+  }
+
   #identifier() {
     if (this.#peekType === 'KEYWORD' && this.#peekValue === 'PROC') {
       this.#procedureDefinition();
@@ -878,6 +1168,11 @@ export default class Parser {
 
     if (this.#peekType === 'KEYWORD' && ['BYTE', 'WORD', 'DWORD', 'QWORD', 'REAL4', 'REAL8'].includes(this.#peekValue)) {
       this.#variableDeclaration();
+      return;
+    }
+
+    if (this.#peekType === 'OPERATOR' && this.#peekValue === ':' && this.#peek(2).type === 'EOL') {
+      this.#labelDeclaration();
       return;
     }
 
@@ -965,9 +1260,16 @@ export default class Parser {
       case 'lea':
       case 'add':
       case 'sub':
-      case 'inc':
       case 'log':
         this.#expression();
+        break;
+        
+      case 'jmp':
+        this.#jumpExpression();
+        break;
+
+      case 'inc':
+        this.#incExpression();
         break;
 
       case 'dec':
@@ -990,8 +1292,48 @@ export default class Parser {
         this.#invokeExpression();
         break;
 
-      case 'if':
+      case '.while':
+        this.#whileExpression();
+        break;
+
+      case '.if':
         this.#ifStatement();
+        break;
+
+      case '.err':
+        this.#errExpression();
+        break;
+
+      case '.errb':
+        this.#errbExpression();
+        break;
+
+      case '.errnb':
+        this.#errnbExpression();
+        break;
+
+      case '.erre':
+        this.#erreExpression();
+        break;
+
+      case '.errnz':
+        this.#errnzExpression();
+        break;
+
+      case 'sizestr':
+        this.#sizestrStatement();
+        break;
+
+      case 'substr':
+        this.#substrStatement();
+        break;
+
+      case 'catstr':
+        this.#catstrStatement();
+        break;
+
+      case 'echo':
+        this.#echoExpression();
         break;
 
       case 'exitwhen':
