@@ -42,6 +42,7 @@ export default class Walker {
   #isInObject = false;
   #isInMemberExpression = false;
   #isInAssignmentExpression = false;
+  #importStatements = [];
   #source = '';
 
   constructor(ast, types = false) {
@@ -374,13 +375,25 @@ export default class Walker {
     if (this.#allowSpaces) {
       this.#addSpaces();
     }
-
-    this.#source += `${this.#targetExpr.left}.`;
     
-    const prevAllowSpaces = this.#allowSpaces;
-    const prevAllowSemi = this.#allowSemi;
-    const prevTargetExpr = this.#targetExpr;
-    const prevIsInMemberExpr = this.#isInMemberExpression;
+    let prevAllowSpaces = this.#allowSpaces;
+    let prevAllowSemi = this.#allowSemi;
+    let prevTargetExpr = this.#targetExpr;
+    let prevIsInMemberExpr = this.#isInMemberExpression;
+
+    this.#targetExpr = this.#targetExpr.left;
+    this.#allowSemi = false;
+    this.#allowSpaces = false;
+    this.#isInMemberExpression = true;
+
+    this.walk();
+
+    this.#allowSpaces = prevAllowSpaces;
+    this.#allowSemi = prevAllowSemi;
+    this.#targetExpr = prevTargetExpr;
+    this.#isInMemberExpression = prevIsInMemberExpr;
+
+    this.#source += '.';
 
     this.#targetExpr = this.#targetExpr.right;
     this.#allowSemi = false;
@@ -547,7 +560,7 @@ export default class Walker {
       this.#targetExpr = prevTargetExpr;
     }
 
-    this.#source += `; ${this.#targetExpr.indexVar} <= `;
+    this.#source += `; ${this.#targetExpr.indexVar} < `;
 
     prevTargetExpr = this.#targetExpr;
     this.#targetExpr = this.#targetExpr.to;
@@ -675,6 +688,36 @@ export default class Walker {
     }
 
     this.#source += '};\n';
+  }
+
+  importStatement() {
+    if (this.#allowSpaces) {
+      this.#addSpaces();
+    }
+
+    let statementSource = 'import ';
+
+    if (this.#targetExpr.imports.length > 1) {
+      statementSource += '{ ';
+    }
+
+    for (let i = 0; i < this.#targetExpr.imports.length; i++) {
+      statementSource += this.#targetExpr.imports[i];
+
+      if (i < this.#targetExpr.imports.length - 1) {
+        statementSource += ', ';
+      } else {
+        statementSource += ' ';
+      }
+    }
+
+    if (this.#targetExpr.imports.length > 1) {
+      statementSource += '} ';
+    }
+
+    statementSource += `from ${this.#targetExpr.package};\n`;
+
+    this.#importStatements.push(statementSource);
   }
 
   assignmentExpression() {
@@ -891,6 +934,16 @@ export default class Walker {
     }
 
     this.#source = '(function() {\n' + stdFunctionSource + this.#source + '})();\n';
+  }
+
+  addImportStatements() {
+    let combinedStatements = '';
+
+    for (const statement of this.#importStatements) {
+      combinedStatements += statement;
+    }
+
+    this.#source = combinedStatements + this.#source;
   }
 
   getSource() {
