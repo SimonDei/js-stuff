@@ -30,5 +30,6 @@ fs.writeFileSync('./ast.txt', util.inspect(ast, false, { depth: 100 }));
 const walker = new Walker(ast, typesEnabled);
 walker.walk();
 walker.addStdFunctions();
+walker.addImportStatements();
 
 fs.writeFileSync('./source.js', walker.getSource(), { encoding: 'utf-8' });
