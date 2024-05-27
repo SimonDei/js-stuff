@@ -20,7 +20,8 @@ export default class Scanner {
     'struct',
     'call',
     'debug',
-    'condition', 'expect'
+    'condition', 'expect',
+    'import', 'from'
   ];
 
   /** @type {Token[]} */
