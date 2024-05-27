@@ -48,6 +48,7 @@ export default class Parser {
   #nestedCallExpr = false;
   #nestedCallNameExpr = false;
   #attempt = 5;
+  #inMemberExpression = false;
 
   /**
    * @param {import('./tokenizer').Token[]} tokens 
@@ -546,6 +547,11 @@ export default class Parser {
 
     this.#advance();
 
+    if (this.#currentType === 'OPERATOR' && (this.#currentValue === '.' || this.#currentValue === ':')) {
+      this.#memberExpression(callExpression);
+      return;
+    }
+
     this.#pushDecl(callExpression);
 
     //console.log(this.#targetExpr);
@@ -578,19 +584,30 @@ export default class Parser {
     this.#pushDecl(structDefinition);
   }
 
-  #memberExpression() {
+  #memberExpression(callExpression) {
     const memberExpression = {
       type: 'MemberExpression',
-      left: '',
+      left: [],
       right: [],
       parent: this.#targetExpr
     };
 
-    memberExpression.left = this.#currentValue;
-
-    this.#advance(2);
-
     const prevTargetExpr = this.#targetExpr;
+
+    if (!callExpression) {
+      this.#targetExpr = memberExpression.left;
+      this.#inMemberExpression = true;
+
+      this.parse('OPERATOR', ['.', ':', '->']);
+
+      this.#inMemberExpression = false;
+      this.#targetExpr = prevTargetExpr;
+    } else {
+      memberExpression.left = [callExpression];
+    }
+    
+    this.#advance();
+
     this.#targetExpr = memberExpression.right;
 
     this.parse(['EOL', 'KEYWORD', 'RPAREN', 'OPERATOR'], [undefined, 'then', undefined, '+', '-', '*', '/', '>', '<', '>=', '<=', '==', '!=']);
@@ -835,6 +852,38 @@ export default class Parser {
   // ===========================================================================
   // ===========================================================================
 
+  #importStatement() {
+    const decl = {
+      type: 'ImportStatement',
+      imports: [],
+      package: '',
+      parent: this.#targetExpr
+    };
+
+    this.#advance();
+
+    while (this.#currentType !== 'KEYWORD' && this.#currentValue !== 'from') {
+      if (this.#currentType === 'OPERATOR' && this.#currentValue === ',') {
+        this.#advance();
+        continue;
+      }
+
+      decl.imports.push(this.#currentValue);
+      this.#advance();
+    }
+
+    this.#advance();
+
+    decl.package = this.#currentValue;
+
+    this.#advance();
+
+    this.#pushDecl(decl);
+  }
+
+  // ===========================================================================
+  // ===========================================================================
+
   #object() {
     const objectDeclaration = {
       type: 'ObjectDeclaration',
@@ -916,7 +965,7 @@ export default class Parser {
       this.#nestedCallExpr = false;
       return;
     }
-    if (this.#peekType === 'OPERATOR' && (this.#peekValue === '.' || this.#peekValue === '->')) {
+    if (!this.#inMemberExpression && this.#peekType === 'OPERATOR' && (this.#peekValue === '.' || this.#peekValue === '->' || this.#peekValue === ':')) {
       //console.log('member', this.#currentType, this.#currentValue);
 
       this.#memberExpression();
@@ -1053,6 +1102,10 @@ export default class Parser {
 
       case 'struct':
         this.#structDefinition();
+        break;
+
+      case 'import':
+        this.#importStatement();
         break;
 
       case 'is':
