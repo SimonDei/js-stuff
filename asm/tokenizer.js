@@ -9,12 +9,12 @@ export default class Scanner {
     '.data', '.code', 'end',
     'byte', 'word', 'dword', 'qword', 'real4', 'real8',
     'proc', 'endp',
-    'mov', 'lea', 'add', 'sub', 'inc', 'dec', 'call', 'push', 'invoke', 'jmp',
+    'mov', 'lea', 'add', 'sub', 'inc', 'dec', 'call', 'push', 'pop', 'invoke', 'jmp',
     '.while', '.endw',
     '.repeat', '.until',
     '.if', '.else', '.endif',
     '.err', '.errnz', '.errb', '.errnb', '.erre',
-    'sizestr', 'substr', 'catstr',
+    'sizestr', 'substr', 'catstr', 'sizeof',
     'echo'
   ];
 
@@ -22,7 +22,7 @@ export default class Scanner {
   #tokens = [];
 
   #isNumber(str) {
-    return /^\d[\d.]*$/.test(str);
+    return /^(\-|\d)[\d.]*$/.test(str);
   }
 
   #isAlphaNumeric(str) {
