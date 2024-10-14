@@ -397,7 +397,7 @@ export default class Parser {
 
     const { endValue } = this.parse('KEYWORD', ['.endif', '.else']);
 
-    if (endValue === '.else') {
+    if (endValue.toLowerCase() === '.else') {
       this.#advance();
 
       ifStatement.else = [];
@@ -753,6 +753,26 @@ export default class Parser {
     this.#pushDecl(decl);
   }
 
+  #popExpression() {
+    const decl = {
+      type: 'PopExpression',
+      body: [],
+      parent: this.#targetExpr
+    };
+
+    this.#advance(); // expression name
+
+    this.#targetExpr = decl.body;
+
+    this.parse('EOL');
+
+    this.#advance(); // next line
+
+    this.#targetExpr = decl.parent;
+
+    this.#pushDecl(decl);
+  }
+
   #jumpExpression() {
     const decl = {
       type: 'JumpExpression',
@@ -797,6 +817,46 @@ export default class Parser {
   #decExpression() {
     const decl = {
       type: 'DecExpression',
+      body: [],
+      parent: this.#targetExpr
+    };
+
+    this.#advance(); // expression name
+
+    this.#targetExpr = decl.body;
+
+    this.parse('EOL');
+
+    this.#advance(); // next line
+
+    this.#targetExpr = decl.parent;
+
+    this.#pushDecl(decl);
+  }
+
+  #addExpression() {
+    const decl = {
+      type: 'AddExpression',
+      body: [],
+      parent: this.#targetExpr
+    };
+
+    this.#advance(); // expression name
+
+    this.#targetExpr = decl.body;
+
+    this.parse('EOL');
+
+    this.#advance(); // next line
+
+    this.#targetExpr = decl.parent;
+
+    this.#pushDecl(decl);
+  }
+
+  #subExpression() {
+    const decl = {
+      type: 'SubExpression',
       body: [],
       parent: this.#targetExpr
     };
@@ -1106,6 +1166,24 @@ export default class Parser {
     this.#pushDecl(decl);
   }
 
+  #sizeofStatement() {
+    const decl = {
+      type: 'SizeofStatement',
+      body: [],
+      parent: this.#targetExpr
+    };
+
+    this.#advance();
+
+    this.#targetExpr = decl.body;
+
+    this.parse('EOL');
+
+    this.#targetExpr = decl.parent;
+
+    this.#pushDecl(decl);
+  }
+
   #substrStatement() {
     const decl = {
       type: 'SubstrStatement',
@@ -1258,8 +1336,6 @@ export default class Parser {
         break;
 
       case 'lea':
-      case 'add':
-      case 'sub':
       case 'log':
         this.#expression();
         break;
@@ -1280,8 +1356,20 @@ export default class Parser {
         this.#moveExpression();
         break;
 
+      case 'add':
+        this.#addExpression();
+        break;
+
+      case 'sub':
+        this.#subExpression();
+        break;
+
       case 'push':
         this.#pushExpression();
+        break;
+
+      case 'pop':
+        this.#popExpression();
         break;
 
       case 'call':
@@ -1322,6 +1410,10 @@ export default class Parser {
 
       case 'sizestr':
         this.#sizestrStatement();
+        break;
+
+      case 'sizeof':
+        this.#sizeofStatement();
         break;
 
       case 'substr':
