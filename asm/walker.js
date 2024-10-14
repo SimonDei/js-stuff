@@ -47,6 +47,7 @@ export default class Walker {
   #isInObject = false;
   #isInMemberExpression = false;
   #isInAssignmentExpression = false;
+  #isInPopExpression = false;
   #source = '';
 
   constructor(ast, types = false) {
@@ -748,6 +749,7 @@ export default class Walker {
   }
 
   identifier() {
+    /*
     if (this.#targetExpr.value.startsWith('#')) {
       this.#source += `${this.#targetExpr.value.slice(1)}.length`;
 
@@ -757,8 +759,12 @@ export default class Walker {
 
       return;
     }
+    */
     
-    if (this.registers.includes(this.#targetExpr.value.toLowerCase())) {
+    if (
+      this.registers.includes(this.#targetExpr.value.toLowerCase())
+      && !this.#isInPopExpression
+    ) {
       this.#targetExpr.value = `__readRegister('${this.#targetExpr.value.toLowerCase()}')`;
     }
 
@@ -922,8 +928,11 @@ export default class Walker {
     b: { e: 0xffff, h: 0xff, l: 0xff },
     c: { e: 0xffff, h: 0xff, l: 0xff },
     d: { e: 0xffff, h: 0xff, l: 0xff },
-    r: { '1': 0, '2': 0, '3': 0, '4': 0 }
+    r: { '1': null, '2': null, '3': null, '4': null }
   };
+  function __isBaseRegister(name) {
+    return /[eabcd][hlxebcd]x?/i.test(name);
+  }
   function __topLevelRegister(name) {
     name = name.toLowerCase();
     if (name.length === 2) {
@@ -1085,9 +1094,35 @@ export default class Walker {
     this.checkParametersForRegisters();
 
     const prevTargetExpr = this.switchTargetExpr(this.#targetExpr.body);
+    // this.#isInPushExpression = true;
 
     this.walk();
 
+    // this.#isInPushExpression = false;
+    this.#targetExpr = prevTargetExpr;
+
+    this.#source += ');\n'
+  }
+
+  popExpression() {
+    if (this.#allowSpaces) {
+      this.#addSpaces();
+    }
+
+    console.log('Found pop expression');
+
+    this.#foundMnemonicFunctions.push('pop');
+
+    this.#source += `__pop(`;
+
+    this.replaceWithStringNode(0);
+
+    const prevTargetExpr = this.switchTargetExpr(this.#targetExpr.body);
+    this.#isInPopExpression = true;
+
+    this.walk();
+
+    this.#isInPopExpression = false;
     this.#targetExpr = prevTargetExpr;
 
     this.#source += ');\n'
@@ -1129,6 +1164,50 @@ export default class Walker {
     }
   }
 
+  addExpression() {
+    if (this.#allowSpaces) {
+      this.#addSpaces();
+    }
+
+    console.log('Found add expression');
+
+    this.#foundMnemonicFunctions.push('add');
+
+    this.replaceWithStringNodeIfRegister(0);
+
+    this.#source += '__add(';
+
+    const prevTargetExpr = this.switchTargetExpr(this.#targetExpr.body);
+
+    this.walk();
+
+    this.#targetExpr = prevTargetExpr;
+
+    this.#source += ');\n';
+  }
+
+  subExpression() {
+    if (this.#allowSpaces) {
+      this.#addSpaces();
+    }
+
+    console.log('Found sub expression');
+
+    this.#foundMnemonicFunctions.push('sub');
+    
+    this.replaceWithStringNodeIfRegister(0);
+
+    this.#source += '__sub(';
+
+    const prevTargetExpr = this.switchTargetExpr(this.#targetExpr.body);
+
+    this.walk();
+
+    this.#targetExpr = prevTargetExpr;
+
+    this.#source += ');\n';
+  }
+
   sizestrStatement() {
     console.log('Found sizestr expression');
 
@@ -1143,6 +1222,18 @@ export default class Walker {
     this.#targetExpr = prevTargetExpr;
 
     this.#source += ')';
+  }
+
+  sizeofStatement() {
+    console.log('Found sizeof expression');
+
+    const prevTargetExpr = this.switchTargetExpr(this.#targetExpr.body);
+
+    this.walk();
+
+    this.#targetExpr = prevTargetExpr;
+
+    this.#source += '.length';
   }
 
   substrStatement() {
