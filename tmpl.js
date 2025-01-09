@@ -152,7 +152,8 @@ const builtins = {
 const dimRegexp = /<%\s*dim\s+(?<varname>\w+)\s*=\s*(?<expression>[\s\S]+?)\s*%>/gi;
 const setRegexp = /<%\s*set\s+(?<varname_expr>[\s\S]+)\s*=\s*(?<expression>[\s\S]+?)\s*%>/gi;
 const ifRegexp = /<%\s*if\s+(?<condition>[\s\S]+?)\s*then\s*%>(?<then>[\s\S]+?)(<%\s*else\s*%>(?<else>[\s\S]+?))?<%\s*end\s+if\s*%>/gi;
-const forRegexp = /<%\s*for\s+each\s+(?<item>\w+)\s+in\s+(?<array_expr>[\s\S]+?)\s*%>(?<inner>[\s\S]+?)<%\s*next\s*%>/gi;
+const forInRegexp = /<%\s*for\s+each\s+(?<item>\w+)\s+in\s+(?<array_expr>[\s\S]+?)\s*%>(?<inner>[\s\S]+?)<%\s*next\s*%>/gi;
+const forToRegexp = /<%\s*for\s+(?<item>\w+)\s*=\s*(?<start>\d+)\s+to\s+(?<end>\d+)\s*%>(?<inner>[\s\S]+?)<%\s*next\s*%>/gi;
 const escapeExprRegexp = /<%!\s*([\s\S]+?)\s*%>/gi;
 const exprRegexp = /<%\s*(?<expression>[\s\S]+?)\s*%>/gi;
 
@@ -177,8 +178,11 @@ export function parseTemplate(template, data = {}) {
     .replace(ifRegexp, (_, condition, then, __, elseBlock) => {
       return `'+((${condition.trim()}) ? '${then}' : '${elseBlock || ''}')+'`;
     })
-    .replace(forRegexp, (_, item, array_expr, inner) => {
-      return `'+(${array_expr.trim()}.map(${item} => { return '${inner.replace(/'/g, "\\'")}'; }).join(''))+'`;
+    .replace(forToRegexp, (_, item, start, end, inner) => {
+      return `'+((() => {let lout = '';for(let ${item.trim()} = ${start.trim()}; i < ${end.trim()}; i++){lout += '${inner.replace(/'/g, "\\'")}'}return lout;})())+'`
+    })
+    .replace(forInRegexp, (_, item, array_expr, inner) => {
+      return `'+(${array_expr.trim()}.map(${item} => {return '${inner.replace(/'/g, "\\'")}';}).join(''))+'`;
     })
     .replace(escapeExprRegexp, (_, expression) => {
       return `'+HTML.Encode(${expression})+'`;
@@ -189,8 +193,16 @@ export function parseTemplate(template, data = {}) {
     .replace(/\n/g, "\\n")
     .replace(/\t/g, '\\t')
     .replace(/\r/g, "\\r")
-    .replace(/(\s|;|\}|^|\{)out\+='';/g, '$1')
+		.replace(/(\s|;|\}|^|\{)out\+='';/g, '$1')
     .replace(/\+''/g, "");
 
-  return new Function('data', "let out = ''; with(data) { out = '" + template + "' }return out;")(combinedData);
+  return new Function('data', "let out = '';with(data){out = '" + template + "'}return out;")(combinedData);
 }
+
+/*
+async function viewAsp(page, data, opts) {
+  data = Object.assign({}, defaultCtx, this.locals, data)
+  page = await getTemplate(getPage(page, 'asp'));
+  return engine.parseTemplate(page, data)
+}
+*/
