@@ -181,7 +181,7 @@ export function parseTemplate(template, data = {}) {
       return `'+(${array_expr.trim()}.map(${item} => { return '${inner.replace(/'/g, "\\'")}'; }).join(''))+'`;
     })
     .replace(escapeExprRegexp, (_, expression) => {
-      return `'+escapehtml(${expression})+'`;
+      return `'+HTML.Encode(${expression})+'`;
     })
     .replace(exprRegexp, (_, expression) => {
       return `'+(${expression.trim()})+'`;
@@ -189,10 +189,8 @@ export function parseTemplate(template, data = {}) {
     .replace(/\n/g, "\\n")
     .replace(/\t/g, '\\t')
     .replace(/\r/g, "\\r")
-		.replace(/(\s|;|\}|^|\{)out\+='';/g, '$1')
+    .replace(/(\s|;|\}|^|\{)out\+='';/g, '$1')
     .replace(/\+''/g, "");
-
-  console.log(template);
 
   return new Function('data', "let out = ''; with(data) { out = '" + template + "' }return out;")(combinedData);
 }
