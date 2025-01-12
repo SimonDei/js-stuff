@@ -154,7 +154,8 @@ const setRegexp = /<%\s*set\s+(?<varname_expr>[\s\S]+)\s*=\s*(?<expression>[\s\S
 const ifRegexp = /<%\s*if\s+(?<condition>[\s\S]+?)\s*then\s*%>(?<then>[\s\S]+?)(<%\s*else\s*%>(?<else>[\s\S]+?))?<%\s*end\s+if\s*%>/gi;
 const forInRegexp = /<%\s*for\s+each\s+(?<item>\w+)\s+in\s+(?<array_expr>[\s\S]+?)\s*%>(?<inner>[\s\S]+?)<%\s*next\s*%>/gi;
 const forToRegexp = /<%\s*for\s+(?<item>\w+)\s*=\s*(?<start>\d+)\s+to\s+(?<end>\d+)\s*%>(?<inner>[\s\S]+?)<%\s*next\s*%>/gi;
-const escapeExprRegexp = /<%!\s*([\s\S]+?)\s*%>/gi;
+const selectCaseRegexp = /<%\s*select\s+case\s+(?<variable>\w+)\s*%>(?<cases>[\s\S]+?)<%\s*end\s+select\s*%>/gi; const caseRegexp = /<%\s*case\s+(?<value>[\s\S]+?)\s*%>(?<inner>[\s\S]+?)<%\s*end\s*case\s*%>/gi; const elseCaseRegexp = /<%\s*case\s*else\s*%>(?<inner>[\s\S]+?)<%\s*end\s*case\s*%>/i;
+const escapeExprRegexp = /<%=\s*([\s\S]+?)\s*%>/gi;
 const exprRegexp = /<%\s*(?<expression>[\s\S]+?)\s*%>/gi;
 
 /**
@@ -179,13 +180,26 @@ export function parseTemplate(template, data = {}) {
       return `'+((${condition.trim()}) ? '${then}' : '${elseBlock || ''}')+'`;
     })
     .replace(forToRegexp, (_, item, start, end, inner) => {
-      return `'+((() => {let lout = '';for(let ${item.trim()} = ${start.trim()}; i < ${end.trim()}; i++){lout += '${inner.replace(/'/g, "\\'")}'}return lout;})())+'`
+      return `'+((() => {let o = '';for(let ${item.trim()} = ${start.trim()}; i < ${end.trim()}; i++){o += '${inner.replace(/'/g, "\\'")}'}return o;})())+'`
     })
     .replace(forInRegexp, (_, item, array_expr, inner) => {
       return `'+(${array_expr.trim()}.map(${item} => {return '${inner.replace(/'/g, "\\'")}';}).join(''))+'`;
     })
+    .replace(selectCaseRegexp, (_, variable, cases) => {
+      let elseBlock = '';
+      if (cases.match(elseCaseRegexp)) {
+        cases = cases.replace(elseCaseRegexp, (_, inner) => {
+          elseBlock = `default: result = '${inner.replace(/'/g, "\\'")}';`;
+          return '';
+        });
+      }
+      const caseBlocks = cases.replace(caseRegexp, (_, value, inner) => {
+        return `case ${value.trim()}: result = '${inner.replace(/'/g, "\\'")}';break;`;
+      });
+      return `'+((() => {let s = ${variable.trim()};let r = '';switch(s){${caseBlocks} ${elseBlock}}return r;})())+'`;
+    })
     .replace(escapeExprRegexp, (_, expression) => {
-      return `'+HTML.Encode(${expression})+'`;
+      return `'+(HTML.Encode(${expression}))+'`;
     })
     .replace(exprRegexp, (_, expression) => {
       return `'+(${expression.trim()})+'`;
@@ -198,11 +212,3 @@ export function parseTemplate(template, data = {}) {
 
   return new Function('data', "let out = '';with(data){out = '" + template + "'}return out;")(combinedData);
 }
-
-/*
-async function viewAsp(page, data, opts) {
-  data = Object.assign({}, defaultCtx, this.locals, data)
-  page = await getTemplate(getPage(page, 'asp'));
-  return engine.parseTemplate(page, data)
-}
-*/
