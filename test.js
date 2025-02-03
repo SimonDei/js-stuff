@@ -5,7 +5,7 @@ let tmpl = `
     <set verpflegungenContainer = htmx.find('#reisekosten_verpflegungen') />
     <set anreisetagInput = htmx.find('#reisekosten_ankunftszeit_date') />
     
-    <if len(verpflegungenContainer.children) > reisetage>
+    <if len(verpflegungenContainer.children) gt reisetage>
       <while condition="len(verpflegungenContainer.children) > reisetage">
         <set verpflegungenContainer.removeChild(verpflegungenContainer.lastChild) />
       </while>
@@ -32,7 +32,7 @@ let tmpl = `
     <set anreisetagInput = htmx.find('#reisekosten_ankunftszeit_date') />
     <set abreisetagInput = htmx.find('#reisekosten_abreisezeit_date') />
     
-    <if !abreisetagInput.value || !anreisetagInput.value>
+    <if not abreisetagInput.value || not anreisetagInput.value>
       <set reisetage = 0 />
       <set updateVerpflegungen() />
     </if>
@@ -50,14 +50,14 @@ let tmpl = `
 
 const functionRegex = /<function(?<args>[^>]+>[^>]+)>(?<inner>[\s\S]+?)<\/function>/gui;
 const argumentRegex = /<argument(?<args>[\s\S]+?)(?:\/>|>)/gui;
-const ifRegex = /<if(?<condition>[^>]+>[^>]+)>(?<inner>[\s\S]+?)<\/if>/gui;
+const ifRegex = /<if(?<condition>[\s\S]+?)>(?<inner>[\s\S]+?)<\/if>/gui;
 const whileRegex = /<while(?<args>[^>]+>[^>]+)>(?<inner>[\s\S]+?)<\/while>/gui
 const loopRegex = /<loop(?<args>[^>]+?)>(?<inner>[\s\S]+?)<\/loop>/gui;
 const breakRegexp = /<break ?(?:\/>|>)/gui;
 const throwRegexp = /<throw(?<args>[\s\S]+?)(?:\/>|>)/gui;
 const tryRegexp = /<try>(?<inner>[\s\S]+?)<\/try>/gui;
 const catchRegexp = /<catch>(?<inner>[\s\S]+?)<\/catch>/gui;
-const setRegex = /<set(?<args>[^\/>]+?)(?:\/>|>)/gui;
+const setRegex = /<set(?<args>[\s\S]+?)(?:\/>|>)/gui;
 const returnRegex = /<return(?<args>[^\/>]+?)(?:\/>|>)/gui;
 const dumpRegex = /<dump(?<args>[^\/>]+?)(?:\/>|>)/gui;
 
@@ -67,6 +67,14 @@ function parseArgs(argsString) {
     args[key] = value;
   });
   return args;
+}
+
+function replaceTextOps(str) {
+  return str.replace(/eq/gui, '===').replace(/neq/gui, '!==')
+    .replace(/gt/gui, '>').replace(/lt/gui, '<')
+    .replace(/gte/gui, '>=').replace(/lte/gui, '<=')
+    .replace(/or/gui, '||').replace(/and/gui, '&&')
+    .replace(/not\s/gui, '!');
 }
 
 function parseTemplate(template) {
@@ -91,10 +99,12 @@ function parseTemplate(template) {
     return text + `) {${inner}}`;
   })
   .replace(ifRegex, (match, condition, inner) => {
+    condition = replaceTextOps(condition);
     return `if (${condition.trim()}) {${inner}}`;
   })
   .replace(whileRegex, (match, args, inner) => {
     const argsObj = parseArgs(args);
+    argsObj.condition = replaceTextOps(argsObj.condition);
     return `while (${argsObj.condition}) {${inner}}`;
   })
   .replace(loopRegex, (match, args, inner) => {
@@ -131,4 +141,3 @@ function parseTemplate(template) {
 }
 
 console.log(parseTemplate(tmpl));
-
