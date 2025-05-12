@@ -44,6 +44,8 @@ export default class Walker {
   #isInAssignmentExpression = false;
   #importStatements = [];
   #source = '';
+  #currentObjectProperties = 0;
+  #currentObjectPropertiesIndex = 0;
 
   constructor(ast, types = false) {
     this.#ast = ast;
@@ -169,7 +171,11 @@ export default class Walker {
     this.#targetExpr = prevTargetExpr;
 
     if (this.#targetExpr.body.length > 0) {
-      this.#source += ' = ';
+      if (this.#targetExpr.body[0].type === 'RefExpression') {
+        this.#source += ' = ';
+      } else {
+        this.#source += ' = { value: ';
+      }
 
       prevTargetExpr = this.#targetExpr;
       this.#targetExpr = this.#targetExpr.body;
@@ -187,7 +193,11 @@ export default class Walker {
       this.#targetExpr = prevTargetExpr;
     }
 
-    this.#source += ';\n';
+    if (this.#targetExpr?.body[0]?.type === 'RefExpression' || this.#targetExpr?.body.length === 0) {
+      this.#source += ';\n';
+    } else {
+      this.#source += ' };\n';
+    }
   }
 
   constantDeclaration() {
@@ -609,6 +619,10 @@ export default class Walker {
     this.#source += '}\n';
   }
 
+  refExpression() {
+    this.#source += `__ref(${this.#targetExpr.right})`;
+  }
+
   doExpression() {
     if (this.#allowSpaces) {
       this.#addSpaces();
@@ -731,6 +745,14 @@ export default class Walker {
     this.#importStatements.push(statementSource);
   }
 
+  typedefExpression() {
+    if (this.#allowSpaces) {
+      this.#addSpaces();
+    }
+
+    this.#source += `/** @typedef {${this.#targetExpr.left}} ${this.#targetExpr.right} */\n`;
+  }
+
   assignmentExpression() {
     if (this.#allowSpaces) {
       this.#addSpaces();
@@ -754,7 +776,7 @@ export default class Walker {
     this.#targetExpr = prevTargetExpr;
     this.#isInAssignmentExpression = prevIsInAssignmentExpr;
 
-    if (!this.#isInMemberExpression) {
+    if (this.#allowSemi && this.#allowSpaces && !this.#isInMemberExpression) {
       this.#source += ';\n';
     }
   }
@@ -773,9 +795,14 @@ export default class Walker {
     this.#targetExpr = prevTargetExpr;
     this.#isInAssignmentExpression = prevIsInAssignmentExpr;
 
-    //if (this.#walkIndex <= this.#walkLength) {
+    if (this.#currentObjectPropertiesIndex < this.#currentObjectProperties - 1) {
       this.#source += ',\n';
-    //}
+      this.#addSpaces();
+    } else {
+      this.#source += '\n';
+    }
+
+    this.#currentObjectPropertiesIndex++;
   }
 
   objectDeclaration() {
@@ -783,7 +810,9 @@ export default class Walker {
       this.#addSpaces();
     }
 
-    this.#source += `{`;
+    this.#source += `{\n`;
+    this.#depth++;
+    this.#addSpaces();
 
     const prevTargetExpr = this.#targetExpr;
     const prevIsInObject = this.#isInObject;
@@ -791,8 +820,9 @@ export default class Walker {
 
     this.#targetExpr = this.#targetExpr.body;
     this.#isInObject = true;
+    this.#currentObjectProperties = this.#targetExpr.length;
+    this.#currentObjectPropertiesIndex = 0;
     //this.#allowSpaces = true;
-    this.#depth++;
 
     this.walk();
 
@@ -826,6 +856,7 @@ export default class Walker {
     }
     */
 
+    this.#addSpaces();
     this.#source += '}';
   }
 
