@@ -1,32 +1,40 @@
-globals
-  array selectors
-  array tables
-endglobals
+typedef integer INT
+typedef integer INT32
 
-function SelectorTabClick takes event e returns nothing
-  call ForEach(selectors, j => RemoveClass('border-b-2', 'border-white'))
-  call AddClass(this, ['border-b-2', 'border-white'])
-  call ForEach(tables, j => AddClass(j, 'hidden'))
-  call RemoveClass(QuerySelector(`table[id="${this.textContent}"]`), 'hidden')
+function Divide takes integer a, integer b returns integer
+  expect a != 0
+  expect b != 0
+
+  return a / b
 endfunction
 
 function Main takes nothing returns nothing
-  set selectors = QuerySelectorAll('.selectors')
-  set tables = QuerySelectorAll('table')
+  local array result
+  
+  local array arr1 = [1, 2, 3, 4, 5]
+  local array arr2 = Array('a', 'b', 'c', 'd', 'e')
 
-  local integer i = 0
-  local element el = null
+  local INT32 arr1Length = Length(arr1)
+  local INT32 arr2Length = Length(arr2)
+  
+  local INT32 i = 0
+  local INT32 j = 0
+
+  local INT32 pi = ref i
 
   loop
-    exitwhen i >= 10
+    exitwhen i >= arr1Length and j >= arr2Length
 
-    call AddEventListener(selectors[i], 'click', function SelectorTabClick)
+    if i < arr1Length then
+      set result[i + j] = arr1[i]
+      set i = i + 1
+    endif
 
-    set i = i + 1
+    if j < arr2Length then
+      set result[i + j] = arr2[j]
+      set j = j + 1
+    endif
   endloop
-
-  local object o = {
-    a = 'test',
-    b = 10
-  }
 endfunction
+
+call Main()
