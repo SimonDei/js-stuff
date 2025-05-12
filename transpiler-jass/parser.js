@@ -50,6 +50,8 @@ export default class Parser {
   #attempt = 5;
   #inMemberExpression = false;
   #inGlobalsDeclaration = false;
+  #inObjectDeclaration = false;
+  #inVariableDeclaration = false;
 
   /**
    * @param {import('./tokenizer').Token[]} tokens 
@@ -159,15 +161,17 @@ export default class Parser {
     // variableDecl.name = this.#currentValue;
 
     this.#targetExpr = variableDecl.left;
+    this.#inVariableDeclaration = true;
 
     this.parse(['OPERATOR', 'EOL'], ['=', undefined]);
 
     this.#targetExpr = variableDecl.parent;
+    this.#inVariableDeclaration = false;
 
     if (this.#currentType === 'OPERATOR' && this.#currentValue === '=') {
       this.#advance();
       
-      this.#targetExpr = variableDecl;
+      this.#targetExpr = variableDecl.body;
 
       this.parse('EOL');
 
@@ -468,7 +472,7 @@ export default class Parser {
 
     this.#targetExpr = ifStatement.then;
 
-    const { endValue } = this.parse('KEYWORD', ['end', 'else']);
+    const { endValue } = this.parse('KEYWORD', ['end', 'endif', 'else']);
 
     if (endValue === 'else') {
       this.#advance();
@@ -476,7 +480,7 @@ export default class Parser {
       ifStatement.else = [];
       this.#targetExpr = ifStatement.else;
 
-      this.parse('KEYWORD', 'end');
+      this.parse('KEYWORD', ['end', 'endif']);
     }
 
     this.#advance();
@@ -587,13 +591,34 @@ export default class Parser {
 
     this.#targetExpr = structDefinition.body;
 
-    this.parse('KEYWORD', 'end');
+    this.parse('KEYWORD', ['end', 'endstruct']);
 
     this.#targetExpr = prevTargetExpr;
 
     this.#advance();
 
     this.#pushDecl(structDefinition);
+  }
+
+  #typedefExpression() {
+    const typedefExpression = {
+      type: 'TypedefExpression',
+      left: [],
+      right: [],
+      parent: this.#targetExpr
+    };
+    
+    this.#advance();
+
+    typedefExpression.left = this.#currentValue;
+    
+    this.#advance();
+
+    typedefExpression.right = this.#currentValue;
+
+    this.#advance();
+    
+    this.#pushDecl(typedefExpression);
   }
 
   #memberExpression(callExpression) {
@@ -622,7 +647,7 @@ export default class Parser {
 
     this.#targetExpr = memberExpression.right;
 
-    this.parse(['EOL', 'KEYWORD', 'RPAREN', 'OPERATOR'], [undefined, 'then', undefined, '+', '-', '*', '/', '>', '<', '>=', '<=', '==', '!=']);
+    this.parse(['EOL', 'KEYWORD', 'RPAREN', 'OPERATOR'], [undefined, 'then', undefined, '=', '+', '-', '*', '/', '>', '<', '>=', '<=', '==', '!=']);
 
     this.#targetExpr = prevTargetExpr;
 
@@ -762,7 +787,7 @@ export default class Parser {
 
     this.#targetExpr = forStatement.body;
 
-    this.parse('KEYWORD', 'end');
+    this.parse('KEYWORD', ['end', 'endfor']);
 
     this.#targetExpr = prevTargetExpr;
 
@@ -838,6 +863,22 @@ export default class Parser {
     this.#pushDecl(assignmentExpression);
   }
 
+  #refStatement() {
+    const refExpression = {
+      type: 'RefExpression',
+      right: '',
+      parent: this.#targetExpr
+    };
+
+    this.#advance();
+
+    refExpression.right = this.#currentValue;
+    
+    this.#advance();
+    
+    this.#pushDecl(refExpression);
+  }
+
   // ===========================================================================
   // ===========================================================================
 
@@ -906,10 +947,12 @@ export default class Parser {
 
     const prevTargetExpr = this.#targetExpr;
     this.#targetExpr = objectDeclaration;
+    this.#inObjectDeclaration = true;
 
     this.parse('RBRACE');
 
     this.#targetExpr = prevTargetExpr;
+    this.#inObjectDeclaration = false;
 
     this.#advance();
 
@@ -974,6 +1017,11 @@ export default class Parser {
       return;
     }
 
+    if (this.#inObjectDeclaration && this.#peekType !== 'EOL') {
+      this.#assignmentExpression();
+      return;
+    }
+
     if (this.#peekType === 'LPAREN' && !this.#nestedCallNameExpr) {
       //console.log('call', this.#currentValue);
 
@@ -983,7 +1031,7 @@ export default class Parser {
       return;
     }
     if (!this.#inMemberExpression && this.#peekType === 'OPERATOR' && (this.#peekValue === '.' || this.#peekValue === '->' || this.#peekValue === ':')) {
-      //console.log('member', this.#currentType, this.#currentValue);
+      console.log('member', this.#currentType, this.#currentValue);
 
       this.#memberExpression();
       return;
@@ -996,7 +1044,7 @@ export default class Parser {
       return;
     }
 
-    if (this.#parentExprType !== 'SetExpression' && this.#peekType === 'OPERATOR' && this.#peekValue === '=') {
+    if (!this.#inVariableDeclaration && this.#parentExprType !== 'SetExpression' && this.#peekType === 'OPERATOR' && this.#peekValue === '=') {
       //console.log(this.#targetExpr.parent);
       this.#assignmentExpression();
       return;
@@ -1108,6 +1156,10 @@ export default class Parser {
         this.#forStatement();
         break;
 
+      case 'ref':
+        this.#refStatement();
+        break;
+
       case 'nil':
         this.#nilExpression();
         break;
@@ -1123,6 +1175,10 @@ export default class Parser {
 
       case 'import':
         this.#importStatement();
+        break;
+
+      case 'typedef':
+        this.#typedefExpression();
         break;
 
       case 'is':
