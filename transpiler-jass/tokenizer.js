@@ -17,11 +17,14 @@ export default class Scanner {
     'is', 'not', 'and', 'or',
     'loop', 'exitwhen', 'endloop',
     'for', 'to', 'in',
-    'struct',
+    'struct', 'endstruct',
     'call',
     'debug',
     'condition', 'expect',
-    'import', 'from'
+    'import', 'from',
+    'interface', 'endinterface',
+    'typedef',
+    'ref'
   ];
 
   /** @type {Token[]} */
