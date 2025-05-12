@@ -4,6 +4,18 @@ const StdDecls = {};
 // Universal Functions
 // ========================================================================================
 
+StdDecls.ref = function(target) {
+  return new Proxy(target, {
+    set(target, _, value) {
+      target.value = value;
+      return true;
+    },
+    get(target) {
+      return target.value;
+    }
+  });
+};
+
 StdDecls.assert = function(test, message) {
   if (!test) {
     throw new Error(message);
@@ -38,11 +50,11 @@ StdDecls.S2I = function(value) {
   return Number.parseInt(value);
 };
 
-StdDecls.print = function(message) {
+StdDecls.Print = function(message) {
   console.log(message);
 };
 
-StdDecls.log = function(value) {
+StdDecls.Log = function(value) {
   console.log(value);
 };
 
@@ -50,7 +62,7 @@ StdDecls.info = function(value) {
   console.info(value)
 };
 
-StdDecls.length = function(value) {
+StdDecls.Length = function(value) {
   return value?.length ?? 0;
 };
 
@@ -86,6 +98,10 @@ StdDecls.char = function(value) {
 // Math Functions
 // ========================================================================================
 
+StdDecls.Mod = function(a, b) {
+  return a % b;
+};
+
 StdDecls.pow = function(a, b) {
   return Math.pow(a, b);
 };
@@ -110,7 +126,7 @@ StdDecls.randInt = function(min = 0, max = 1) {
 // Array Functions
 // ========================================================================================
 
-StdDecls.array = function(...values) {
+StdDecls.Array = function(...values) {
   return [...values];
 };
 
