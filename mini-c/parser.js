@@ -149,7 +149,7 @@ export default class Parser {
     const returnTypeToken = this.consume();
     if (
       returnTypeToken.type !== 'KEYWORD' ||
-      !['void', 'int', 'float', 'string', 'bool'].includes(returnTypeToken.value)
+      !['void', 'auto', 'int', 'float', 'string', 'bool'].includes(returnTypeToken.value)
     ) {
       throw new Error(`Expected return type at line ${returnTypeToken.line}`);
     }
@@ -491,6 +491,74 @@ export default class Parser {
     };
   }
 
+  parseIfStatement() {
+    const ifToken = this.consume(); // consume 'if'
+
+    // Expect '('
+    if (!this.match('LPAREN')) {
+      throw new Error(`Parse error on line ${ifToken.line}: Expected '(' after 'if'`);
+    }
+    this.consume(); // consume '('
+
+    // Parse condition
+    const condition = this.parseExpression();
+
+    // Expect ')'
+    if (!this.match('RPAREN')) {
+      throw new Error(`Parse error on line ${this.peek().line}: Expected ')' after condition`);
+    }
+    this.consume(); // consume ')'
+
+    // Expect '{'
+    if (!this.match('LBRACE')) {
+      throw new Error(`Parse error on line ${this.peek().line}: Expected '{' to start 'if' block`);
+    }
+    this.consume(); // consume '{'
+
+    // Parse 'if' block statements
+    const consequent = this.parseStatements(['RBRACE']);
+
+    // Expect '}'
+    if (!this.match('RBRACE')) {
+      throw new Error(`Parse error on line ${this.peek().line}: Expected '}' to close 'if' block`);
+    }
+    this.consume(); // consume '}'
+
+    // Parse optional 'else' or 'elseif'
+    let alternate = null;
+    if (this.match('KEYWORD', 'else')) {
+      this.consume(); // consume 'else'
+
+      if (this.match('KEYWORD', 'if')) {
+        // Parse 'elseif' as a nested 'if' statement
+        alternate = this.parseIfStatement();
+      } else {
+        // Expect '{'
+        if (!this.match('LBRACE')) {
+          throw new Error(`Parse error on line ${this.peek().line}: Expected '{' to start 'else' block`);
+        }
+        this.consume(); // consume '{'
+
+        // Parse 'else' block statements
+        alternate = this.parseStatements(['RBRACE']);
+
+        // Expect '}'
+        if (!this.match('RBRACE')) {
+          throw new Error(`Parse error on line ${this.peek().line}: Expected '}' to close 'else' block`);
+        }
+        this.consume(); // consume '}'
+      }
+    }
+
+    return {
+      type: 'IfStatement',
+      condition,
+      consequent,
+      alternate,
+      line: ifToken.line,
+    };
+  }
+
   parseReturnStatement() {
     const returnToken = this.consume(); // consume 'return' keyword
 
@@ -520,6 +588,10 @@ export default class Parser {
       const statement = this.parseReturnStatement();
       if (consumeSemicolon && this.match('SEMICOLON')) this.consume(); // Consume semicolon if allowed
       return statement;
+    }
+
+    if (this.match('KEYWORD', 'if')) {
+      return this.parseIfStatement();
     }
 
     if (this.match('KEYWORD', 'for')) {
