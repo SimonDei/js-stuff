@@ -1,6 +1,6 @@
 export default class Scanner {
   static KEYWORDS = new Set([
-    'void', 'int', 'float', 'string', 'null', 'bool',
+    'void', 'auto', 'int', 'float', 'string', 'null', 'bool',
     'true', 'false',
     'await',
     'const', 'new', 'return',
@@ -70,6 +70,17 @@ export default class Scanner {
         const result = this.consumeString(input, index, char, line);
         index = result.index;
         line = result.line;
+        continue;
+      }
+
+      // Handle negative numbers
+      if (char === '-' && /\d/.test(input[index + 1])) {
+        let num = '-';
+        index++; // consume '-'
+        while (index < input.length && /[\d.]/.test(input[index])) {
+          num += input[index++];
+        }
+        this.tokens.push({ type: 'NUMBER', value: num, line });
         continue;
       }
 
