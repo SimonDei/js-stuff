@@ -1,6 +1,11 @@
 int main(void) {
   int i
-  int n = 10
+  auto n = (3 + 3) * 2
+
+  if (n <= 0) {
+    printf("Please enter a positive integer.\n")
+    return -1
+  }
 
   int t1 = 0
   int t2 = 1
