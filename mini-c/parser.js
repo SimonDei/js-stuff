@@ -43,6 +43,25 @@ export default class Parser {
 
   parsePrimary() {
     const token = this.peek();
+
+    // Skip comments
+    if (this.match('OPERATOR', '//')) {
+      while (!this.match('EOL') && !this.match('EOF')) {
+        this.consume(); // Consume the comment tokens until the end of the line
+      }
+      this.consume(); // Consume the EOL token
+      return null; // Return null to indicate no valid expression
+    }
+
+    if (this.match('OPERATOR', '/*')) {
+      while (!this.match('OPERATOR', '*/') && !this.match('EOF')) {
+        this.consume(); // Consume the comment tokens until the closing '*/'
+      }
+      if (this.match('OPERATOR', '*/')) {
+        this.consume(); // Consume the closing '*/'
+      }
+      return null; // Return null to indicate no valid expression
+    }
   
     // Handle prefix unary operators (e.g., ++i, --i)
     if (token.type === 'OPERATOR' && (token.value === '++' || token.value === '--')) {
@@ -80,6 +99,42 @@ export default class Parser {
   
       return arrayExpr;
     }
+
+    // Handle structure initializations (e.g., { "Alice", 30, Person{ "Max", 45 } })
+    if (this.match('LBRACE')) {
+      this.consume(); // consume '{'
+
+      const fields = [];
+      while (!this.match('RBRACE')) {
+        // Check if the next token is an identifier followed by '{', indicating a nested struct
+        if (this.match('IDENTIFIER') && this.tokens[this.current + 1]?.type === 'LBRACE') {
+          const structName = this.consume().value; // consume the struct name
+          const nestedStruct = this.parsePrimary(); // recursively parse the nested struct
+          nestedStruct.structName = structName; // assign the struct name to the nested struct
+          fields.push(nestedStruct);
+        } else {
+          fields.push(this.parseExpression()); // Parse each field value
+        }
+
+        if (this.match('OPERATOR', ',')) {
+          this.consume(); // consume ',' between fields
+        } else {
+          break;
+        }
+      }
+
+      if (!this.match('RBRACE')) {
+        throw new Error(`Parse error on line ${this.peek().line}: Expected '}' to close structure initialization`);
+      }
+      this.consume(); // consume '}'
+
+      return {
+        type: 'StructInitialization',
+        structName: null, // The struct name will be assigned by the parent if needed
+        fields,
+        line: token.line,
+      };
+    }
   
     const consumedToken = this.consume();
 
@@ -113,6 +168,18 @@ export default class Parser {
       // Handle function calls (e.g., func(1, 2))
       if (this.match('LPAREN')) {
         return this.parseCallExpression(object);
+      }
+
+      // Handle postfix unary operators (e.g., i++, i--)
+      if (this.match('OPERATOR', '++') || this.match('OPERATOR', '--')) {
+        const operator = this.consume().value; // consume '++' or '--'
+        return {
+          type: 'UnaryExpression',
+          operator,
+          argument: object,
+          prefix: false, // Postfix operator
+          line: consumedToken.line,
+        };
       }
   
       return object;
@@ -242,6 +309,38 @@ export default class Parser {
     };
   }
 
+  parseComplexType(typeToken) {
+    let type = typeToken.value;
+
+    // Check for function pointer types (e.g., int (int, string))
+    if (this.match('LPAREN')) {
+      this.consume(); // consume '('
+      const paramTypes = [];
+      while (!this.match('RPAREN')) {
+        const paramTypeToken = this.consume();
+        if (paramTypeToken.type !== 'KEYWORD') {
+          throw new Error(`Parse error on line ${paramTypeToken.line}: Expected parameter type`);
+        }
+        paramTypes.push(paramTypeToken.value);
+
+        if (this.match('OPERATOR', ',')) {
+          this.consume(); // consume ','
+        } else {
+          break;
+        }
+      }
+
+      if (!this.match('RPAREN')) {
+        throw new Error(`Parse error on line ${this.peek().line}: Expected ')' after parameter types`);
+      }
+      this.consume(); // consume ')'
+
+      type += ` (${paramTypes.join(', ')})`;
+    }
+
+    return type;
+  }
+
   parseFunctionDeclaration() {
     // Check for 'async' keyword
     let isAsync = false;
@@ -249,65 +348,72 @@ export default class Parser {
       this.consume(); // consume 'async'
       isAsync = true;
     }
-  
+
     // Parse the return type (e.g., 'void')
     const returnTypeToken = this.consume();
-    const returnType = returnTypeToken.value;
-  
+    const returnType = this.parseComplexType(returnTypeToken);
+
     if (!this.match('IDENTIFIER')) {
       throw new Error(`Parse error on line ${returnTypeToken.line}: Expected function name`);
     }
     const nameToken = this.consume();
     const name = nameToken.value;
-  
+
     if (!this.match('LPAREN')) {
       throw new Error(`Parse error on line ${nameToken.line}: Expected '(' after function name`);
     }
     this.consume(); // consume '('
-  
+
     // Parse the parameter list
     const parameters = [];
-    while (!this.match('RPAREN')) {
-      const paramTypeToken = this.consume(); // e.g., 'Event'
-      const paramType = paramTypeToken.value;
-  
-      if (!this.match('IDENTIFIER')) {
-        throw new Error(`Parse error on line ${paramTypeToken.line}: Expected parameter name`);
-      }
-      const paramNameToken = this.consume();
-      const paramName = paramNameToken.value;
-  
-      parameters.push({
-        type: paramType,
-        name: paramName,
-        line: paramTypeToken.line,
-      });
-  
-      if (this.match('OPERATOR', ',')) {
-        this.consume(); // consume ','
+    if (!this.match('RPAREN')) {
+      // Special case: void as the only parameter
+      if (this.match('KEYWORD', 'void') && this.tokens[this.current + 1]?.type === 'RPAREN') {
+        this.consume(); // consume 'void'
       } else {
-        break;
+        while (!this.match('RPAREN')) {
+          const paramTypeToken = this.consume(); // e.g., 'int'
+          const paramType = this.parseComplexType(paramTypeToken);
+
+          if (!this.match('IDENTIFIER')) {
+            throw new Error(`Parse error on line ${paramTypeToken.line}: Expected parameter name`);
+          }
+          const paramNameToken = this.consume();
+          const paramName = paramNameToken.value;
+
+          parameters.push({
+            type: paramType,
+            name: paramName,
+            line: paramTypeToken.line,
+          });
+
+          if (this.match('OPERATOR', ',')) {
+            this.consume(); // consume ','
+          } else {
+            break;
+          }
+        }
       }
     }
-  
+
     if (!this.match('RPAREN')) {
       throw new Error(`Parse error on line ${nameToken.line}: Expected ')' after parameter list`);
     }
     this.consume(); // consume ')'
-  
+
     if (!this.match('LBRACE')) {
       throw new Error(`Parse error on line ${nameToken.line}: Expected '{' after parameter list`);
     }
     this.consume(); // consume '{'
-  
+
     // Parse the function body
     const body = this.parseStatements(['RBRACE']);
-  
+
     if (!this.match('RBRACE')) {
       throw new Error(`Parse error on line ${this.peek().line}: Expected '}' after function body`);
     }
     this.consume(); // consume '}'
-  
+
     return {
       type: 'FunctionDeclaration',
       isAsync,
@@ -347,8 +453,8 @@ export default class Parser {
         this.consume();
       }
       
-      // Expect field type (keyword)
-      if (!this.match('KEYWORD')) {
+      // Expect field type (keyword or identifier for user-defined types)
+      if (!this.match('KEYWORD') && !this.match('IDENTIFIER')) {
         throw new Error(`Parse error on line ${this.peek().line}: Expected field type`);
       }
       const fieldTypeToken = this.consume();
@@ -435,6 +541,11 @@ export default class Parser {
     if (this.match('OPERATOR', '=')) {
       this.consume(); // consume '='
       init = this.parseExpression();
+
+      // Assign the structName if the initialization is a StructInitialization
+      if (init.type === 'StructInitialization') {
+        init.structName = type;
+      }
     }
   
     // Optional: consume EOL or semicolon here
@@ -839,7 +950,7 @@ export default class Parser {
     const statements = [];
     while (!stopTypes.some(type => this.match(type))) {
       const stmt = this.parseStatement();
-      if (stmt !== null) {
+      if (stmt !== null && stmt.expression !== null) {
         statements.push(stmt);
       }
     }
