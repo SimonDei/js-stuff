@@ -138,7 +138,7 @@ export default class Scanner {
         continue;
       }
 
-      if (/[A-Za-z_]/.test(char)) {
+      if (/[A-Za-z_$#]/.test(char)) {
         let ident = '';
         while (index < input.length && this.isAlphaNumeric(input[index])) {
           ident += input[index++];
