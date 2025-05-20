@@ -16,8 +16,15 @@ int fibonacci(int n) {
   return fibonacci(n - 1) + fibonacci(n - 2);
 }
 
-$.on = void (string event, void (Event) callback) {
-  this.addEventListener(event, callback);
+Element $(string selector) {
+  return document.querySelector(selector);
+}
+
+const Element[] $$ = void (string selector) =>
+  document.querySelectorAll(selector);
+
+$.on = void (Element el, string event, void (Event) callback) {
+  el.addEventListener(event, callback);
 }
 
 int main(void) {
@@ -27,8 +34,8 @@ int main(void) {
     printf("Name ist Max\n");
   }
 
-  const Element e = document.querySelector("#name");
-  e.addEventListener("click", void (Event ev) {
+  const Element e = $("#name");
+  $.on(e, "click", void (Event ev) {
     ev.preventDefault();
     printf("Element clicked\n");
   });
