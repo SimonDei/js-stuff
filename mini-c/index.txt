@@ -1,25 +1,33 @@
+struct Pet {
+  string name;
+  int age;
+}
+
+struct Person {
+  string name;
+  int age;
+  Pet pet;
+}
+
+int fibonacci(int n) {
+  if (n <= 1) {
+    return n;
+  }
+  return fibonacci(n - 1) + fibonacci(n - 2);
+}
+
 int main(void) {
-  int i
-  auto n = (3 + 3) * 2
+  Person p = { "Max", 30, Pet{ "Blub", 3 } };
 
-  if (n <= 0) {
-    printf("Please enter a positive integer.\n")
-    return -1
+  if (p.name == "Max") {
+    printf("Name ist Max\n");
   }
 
-  int t1 = 0
-  int t2 = 1
-
-  int nextTerm = t1 + t2
-
-  printf("Fibonacci Series: %d, %d, ", t1, t2)
-
-  for (i = 3; i <= n; ++i) {
-    printf("%d, ", nextTerm)
-    t1 = t2
-    t2 = nextTerm
-    nextTerm = t1 + t2
-  }
+  const Element e = document.querySelector("#name");
+  e.addEventListener("click", void (Event ev) {
+    ev.preventDefault();
+    printf("Element clicked\n");
+  });
 
   return 0;
 }
