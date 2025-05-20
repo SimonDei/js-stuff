@@ -5,6 +5,8 @@ export default class Parser {
 
     this.PRECEDENCE = {
       '=': 5,  // Assignment operator
+      '&&': 12,
+      '||': 12,
       '<': 15, // Comparison operators
       '>': 15,
       '<=': 15,
@@ -41,7 +43,7 @@ export default class Parser {
 
   parsePrimary() {
     const token = this.peek();
-
+  
     // Handle prefix unary operators (e.g., ++i, --i)
     if (token.type === 'OPERATOR' && (token.value === '++' || token.value === '--')) {
       const operator = this.consume().value; // consume '++' or '--'
@@ -55,47 +57,88 @@ export default class Parser {
       };
     }
 
+    // Handle unary '!' operator
+    if (this.match('OPERATOR', '!')) {
+      const opToken = this.consume(); // consume '!'
+      const argument = this.parsePrimary(); // parse what follows
+      return {
+        type: 'UnaryExpression',
+        operator: opToken.value,
+        argument,
+        line: opToken.line
+      };
+    }
+  
+    // Handle array expressions (e.g., [1, 2, 3])
+    if (this.match('LBRACKET')) {
+      const arrayExpr = this.parseArrayExpression();
+  
+      // Check if the array is followed by a member expression (e.g., .reduce)
+      if (this.match('OPERATOR', '.')) {
+        return this.parseMemberExpression(arrayExpr);
+      }
+  
+      return arrayExpr;
+    }
+  
     const consumedToken = this.consume();
 
+    // If it's 'async', parse the entire lambda inline
+    if (consumedToken.type === 'KEYWORD' && consumedToken.value === 'async') {
+      if (
+        this.match('KEYWORD') &&
+        ['int', 'float', 'void', 'string', 'bool'].includes(this.peek().value) &&
+        this.tokens[this.current + 1] &&
+        this.tokens[this.current + 1].type === 'LPAREN'
+      ) {
+        return this.parseLambdaExpression(true); 
+      } else {
+        throw new Error(`Parse error on line ${consumedToken.line}: Unhandled async usage`);
+      }
+    }
+  
+    // Handle identifiers (e.g., variable names, member expressions, function calls)
     if (consumedToken.type === 'IDENTIFIER') {
-      // Try to parse member expression first
       let object = {
         type: 'Identifier',
         name: consumedToken.value,
         line: consumedToken.line,
       };
-
-      // Handle member expressions (e.g., p.age)
+  
+      // Handle member expressions (e.g., obj.property)
       if (this.match('OPERATOR', '.')) {
         object = this.parseMemberExpression(object);
       }
-
-      // Handle function calls (e.g., add_two(3, 4))
+  
+      // Handle function calls (e.g., func(1, 2))
       if (this.match('LPAREN')) {
         return this.parseCallExpression(object);
       }
-
+  
       return object;
     }
-
+  
+    // Handle string literals
     if (consumedToken.type === 'STRING') {
       return { type: 'StringLiteral', value: consumedToken.value, line: consumedToken.line };
     }
-
+  
+    // Handle numeric literals
     if (consumedToken.type === 'NUMBER') {
       return { type: 'NumericLiteral', value: consumedToken.value, line: consumedToken.line };
     }
-
+  
     // Handle boolean literals (true/false)
     if (consumedToken.type === 'KEYWORD' && (consumedToken.value === 'true' || consumedToken.value === 'false')) {
       return { type: 'BooleanLiteral', value: consumedToken.value === 'true', line: consumedToken.line };
     }
-
+  
     // Handle null literal
     if (consumedToken.type === 'KEYWORD' && consumedToken.value === 'null') {
       return { type: 'NullLiteral', value: null, line: consumedToken.line };
     }
-
+  
+    // Handle grouped expressions (e.g., (a + b))
     if (consumedToken.type === 'LPAREN') {
       const expr = this.parseExpression();
       if (!this.match('RPAREN')) {
@@ -104,22 +147,51 @@ export default class Parser {
       this.consume(); // consume ')'
       return expr;
     }
-
+  
     throw new Error(`Parse error on line ${consumedToken.line}: Unexpected token '${consumedToken.type}' with value '${consumedToken.value}'`);
   }
 
   parseExpression(precedence = 0) {
+    // Check for lambda expression
+    if (
+      this.match('KEYWORD') &&
+      ['int', 'float', 'void', 'string', 'bool', 'async'].includes(this.peek().value) &&
+      this.tokens[this.current + 1] &&
+      this.tokens[this.current + 1].type === 'LPAREN'
+    ) {
+      return this.parseLambdaExpression();
+    }
+  
     let left = this.parsePrimary();
-
+  
+    // Skip any EOL tokens before checking for member or call
+    while (this.match('EOL')) {
+      this.consume();
+    }
+  
+    // Check for member (.) or call (...)
+    while (true) {
+      // Again skip EOL if needed
+      while (this.match('EOL')) {
+        this.consume();
+      }
+  
+      if (this.match('OPERATOR', '.')) {
+        left = this.parseMemberExpression(left);
+      } else if (this.match('LPAREN')) {
+        left = this.parseCallExpression(left);
+      } else {
+        break;
+      }
+    }
+  
+    // Now handle binary/assignment operators
     while (this.match('OPERATOR')) {
       const opToken = this.peek();
       const opPrecedence = this.getPrecedence(opToken.value);
-
       if (opPrecedence <= precedence) break;
-
+  
       const operator = this.consume().value;
-
-      // Handle assignment expressions (e.g., p.age = 10)
       if (operator === '=') {
         const right = this.parseExpression(opPrecedence);
         left = {
@@ -130,7 +202,6 @@ export default class Parser {
           line: opToken.line,
         };
       } else {
-        // Handle binary expressions (e.g., a + b)
         const right = this.parseExpression(opPrecedence);
         left = {
           type: 'BinaryExpression',
@@ -141,100 +212,110 @@ export default class Parser {
         };
       }
     }
-
+  
     return left;
   }
 
-  parseFunctionDeclaration() {
-    const returnTypeToken = this.consume();
-    if (
-      returnTypeToken.type !== 'KEYWORD' ||
-      !['void', 'auto', 'int', 'float', 'string', 'bool'].includes(returnTypeToken.value)
-    ) {
-      throw new Error(`Expected return type at line ${returnTypeToken.line}`);
-    }
-
-    // Expect function name identifier
-    const nameToken = this.consume();
-    if (nameToken.type !== 'IDENTIFIER') {
-      throw new Error(`Expected function name at line ${nameToken.line}`);
-    }
-    const name = nameToken.value;
-
-    // Expect '('
-    if (!this.match('LPAREN')) {
-      throw new Error(`Expected '(' after function name at line ${this.peek().line}`);
-    }
-    this.consume(); // consume '('
-
-    // Parse parameters
-    const params = [];
-    while (!this.match('RPAREN')) {
-      // Special case: void as the only parameter
-      if (this.match('KEYWORD', 'void')) {
-        this.consume(); // consume 'void'
-        if (!this.match('RPAREN')) {
-          throw new Error(`Unexpected token after 'void' in parameter list at line ${this.peek().line}`);
-        }
+  parseArrayExpression() {
+    this.consume(); // Consume '['
+  
+    const elements = [];
+    while (!this.match('RBRACKET')) {
+      elements.push(this.parseExpression()); // Parse each element
+  
+      if (this.match('OPERATOR', ',')) {
+        this.consume(); // Consume ',' between elements
       } else {
-        // Expect type (keyword)
-        if (!this.match('KEYWORD')) {
-          throw new Error(`Expected parameter type at line ${this.peek().line}`);
-        }
-        const paramTypeToken = this.consume();
-        let paramType = paramTypeToken.value;
-
-        // Check for nullable indicator (?)
-        let nullable = false;
-        if (this.match('OPERATOR', '?')) {
-          this.consume(); // consume '?'
-          nullable = true;
-        }
-
-        // Expect param name (identifier)
-        if (!this.match('IDENTIFIER')) {
-          throw new Error(`Expected parameter name at line ${this.peek().line}`);
-        }
-        const paramName = this.consume().value;
-
-        params.push({ type: paramType, name: paramName, nullable });
-
-        // If next token is ',', consume and continue params
-        if (this.match('OPERATOR', ',')) {
-          this.consume();
-        } else {
-          break;
-        }
+        break;
       }
     }
+  
+    if (!this.match('RBRACKET')) {
+      throw new Error(`Parse error on line ${this.peek().line}: Expected ']' to close array`);
+    }
+    this.consume(); // Consume ']'
+  
+    return {
+      type: 'ArrayExpression',
+      elements,
+      line: this.tokens[this.current - 1].line,
+    };
+  }
 
-    // Expect ')'
+  parseFunctionDeclaration() {
+    // Check for 'async' keyword
+    let isAsync = false;
+    if (this.match('KEYWORD', 'async')) {
+      this.consume(); // consume 'async'
+      isAsync = true;
+    }
+  
+    // Parse the return type (e.g., 'void')
+    const returnTypeToken = this.consume();
+    const returnType = returnTypeToken.value;
+  
+    if (!this.match('IDENTIFIER')) {
+      throw new Error(`Parse error on line ${returnTypeToken.line}: Expected function name`);
+    }
+    const nameToken = this.consume();
+    const name = nameToken.value;
+  
+    if (!this.match('LPAREN')) {
+      throw new Error(`Parse error on line ${nameToken.line}: Expected '(' after function name`);
+    }
+    this.consume(); // consume '('
+  
+    // Parse the parameter list
+    const parameters = [];
+    while (!this.match('RPAREN')) {
+      const paramTypeToken = this.consume(); // e.g., 'Event'
+      const paramType = paramTypeToken.value;
+  
+      if (!this.match('IDENTIFIER')) {
+        throw new Error(`Parse error on line ${paramTypeToken.line}: Expected parameter name`);
+      }
+      const paramNameToken = this.consume();
+      const paramName = paramNameToken.value;
+  
+      parameters.push({
+        type: paramType,
+        name: paramName,
+        line: paramTypeToken.line,
+      });
+  
+      if (this.match('OPERATOR', ',')) {
+        this.consume(); // consume ','
+      } else {
+        break;
+      }
+    }
+  
     if (!this.match('RPAREN')) {
-      throw new Error(`Expected ')' after parameters at line ${this.peek().line}`);
+      throw new Error(`Parse error on line ${nameToken.line}: Expected ')' after parameter list`);
     }
     this.consume(); // consume ')'
-
-    // Expect '{'
+  
     if (!this.match('LBRACE')) {
-      throw new Error(`Expected '{' to start function body at line ${this.peek().line}`);
+      throw new Error(`Parse error on line ${nameToken.line}: Expected '{' after parameter list`);
     }
     this.consume(); // consume '{'
-
-    // Parse body statements until '}'
-    const bodyStatements = this.parseStatements(['RBRACE', 'EOF']);
-
+  
+    // Parse the function body
+    const body = this.parseStatements(['RBRACE']);
+  
     if (!this.match('RBRACE')) {
-      throw new Error(`Expected '}' to close function body at line ${this.peek().line}`);
+      throw new Error(`Parse error on line ${this.peek().line}: Expected '}' after function body`);
     }
     this.consume(); // consume '}'
-
+  
     return {
       type: 'FunctionDeclaration',
-      returnType: returnTypeToken.value,
+      isAsync,
+      returnType,
       name,
-      params,
-      body: bodyStatements,
-      line: returnTypeToken.line
+      parameters,
+      body,
+      line: returnTypeToken.line,
     };
   }
 
@@ -280,6 +361,11 @@ export default class Parser {
       const fieldNameToken = this.consume();
       const fieldName = fieldNameToken.value;
 
+      if (!this.match('SEMICOLON')) {
+        throw new Error(`Parse error on line ${this.peek().line}: Expected semicolon`);
+      }
+      this.consume();
+
       fields.push({
         type: fieldType,
         name: fieldName,
@@ -318,32 +404,42 @@ export default class Parser {
       this.consume(); // consume 'const'
       isConst = true;
     }
-
-    const typeToken = this.consume(); // e.g. 'int'
-    const type = typeToken.value;
-
+  
+    const typeToken = this.consume(); // e.g., 'int'
+    let type = typeToken.value;
+  
+    // Check for array type (e.g., 'int[]')
+    if (this.match('LBRACKET')) {
+      this.consume(); // consume '['
+      if (!this.match('RBRACKET')) {
+        throw new Error(`Parse error on line ${this.peek().line}: Expected ']' after '[' for array type`);
+      }
+      this.consume(); // consume ']'
+      type += '[]'; // Append '[]' to the type
+    }
+  
     // Check for nullable indicator (?)
     let nullable = false;
     if (this.match('OPERATOR', '?')) {
       this.consume(); // consume '?'
       nullable = true;
     }
-
+  
     if (!this.match('IDENTIFIER')) {
-      throw new Error(`Expected variable name at line ${this.peek().line}`);
+      throw new Error(`Expected variable name at line ${this.peek().line}, got ${this.peek().type}: '${this.peek().value}'`);
     }
     const nameToken = this.consume();
     const name = nameToken.value;
-
+  
     let init = null;
     if (this.match('OPERATOR', '=')) {
       this.consume(); // consume '='
       init = this.parseExpression();
     }
-
+  
     // Optional: consume EOL or semicolon here
     if (this.match('EOL')) this.consume();
-
+  
     return {
       type: 'VariableDeclaration',
       varType: type,
@@ -351,20 +447,20 @@ export default class Parser {
       isConst,
       name,
       init,
-      line: typeToken.line
+      line: typeToken.line,
     };
   }
 
   parseMemberExpression(object) {
-    // Member expressions can chain (e.g., Math.random.seed())
+    // Member expressions can chain (e.g., [1, 2, 3].reduce().somethingElse())
     while (this.match('OPERATOR', '.')) {
-      const dotToken = this.consume();
-      
+      const dotToken = this.consume(); // Consume '.'
+  
       // Consume the member identifier
       if (!this.match('IDENTIFIER')) {
         throw new Error(`Parse error on line ${dotToken.line}: Expected identifier after '.'`);
       }
-      
+  
       const propertyToken = this.consume();
       let member = {
         type: 'MemberExpression',
@@ -372,48 +468,132 @@ export default class Parser {
         property: {
           type: 'Identifier',
           name: propertyToken.value,
-          line: propertyToken.line
+          line: propertyToken.line,
         },
-        line: dotToken.line
+        line: dotToken.line,
       };
-
+  
       // Check if the member is followed by a function call
       if (this.match('LPAREN')) {
         member = this.parseCallExpression(member);
       }
-
+  
       object = member;
     }
-    
+  
     return object;
   }
 
   parseCallExpression(callee) {
-    // We already consumed the callee (an Identifier)
-    // Current token should be '('
-    this.consume(); // consume '('
-
+    this.consume(); // Consume '('
+  
     const args = [];
     while (!this.match('RPAREN')) {
       args.push(this.parseExpression());
-
+  
       if (this.match('OPERATOR', ',')) {
-        this.consume();
+        this.consume(); // Consume ',' between arguments
       } else {
         break;
       }
     }
-
+  
     if (!this.match('RPAREN')) {
       throw new Error(`Parse error on line ${callee.line}: Expected ')' after function call arguments`);
     }
-    this.consume(); // consume ')'
-
+    this.consume(); // Consume ')'
+  
     return {
       type: 'CallExpression',
       callee,
       arguments: args,
       line: callee.line,
+    };
+  }
+
+  parseLambdaExpression(pIsAsync = false) {
+    // Check for 'async' keyword
+    let isAsync = pIsAsync;
+    if (this.match('KEYWORD', 'async')) {
+      this.consume(); // consume 'async'
+      isAsync = true;
+    }
+  
+    // Parse the return type (e.g., 'void')
+    const returnTypeToken = this.consume();
+    const returnType = returnTypeToken.value;
+  
+    if (!this.match('LPAREN')) {
+      throw new Error(`Parse error on line ${returnTypeToken.line}: Expected '(' after return type`);
+    }
+    this.consume(); // consume '('
+  
+    // Parse the parameter list
+    const parameters = [];
+    while (!this.match('RPAREN')) {
+      const paramTypeToken = this.consume(); // e.g., 'Event'
+      const paramType = paramTypeToken.value;
+  
+      if (!this.match('IDENTIFIER')) {
+        throw new Error(`Parse error on line ${paramTypeToken.line}: Expected parameter name`);
+      }
+      const paramNameToken = this.consume();
+      const paramName = paramNameToken.value;
+  
+      parameters.push({
+        type: paramType,
+        name: paramName,
+        line: paramTypeToken.line,
+      });
+  
+      if (this.match('OPERATOR', ',')) {
+        this.consume(); // consume ','
+      } else {
+        break;
+      }
+    }
+  
+    if (!this.match('RPAREN')) {
+      throw new Error(`Parse error on line ${returnTypeToken.line}: Expected ')' after parameter list`);
+    }
+    this.consume(); // consume ')'
+  
+    // Check for arrow function syntax (=>) or block-style lambda with '{'
+    let body;
+    if (this.match('OPERATOR', '=>')) {
+      this.consume(); // consume '=>'
+  
+      // Parse the body of the arrow function
+      if (this.match('LBRACE')) {
+        this.consume(); // consume '{'
+        body = this.parseStatements(['RBRACE']);
+        if (!this.match('RBRACE')) {
+          throw new Error(`Parse error on line ${this.peek().line}: Expected '}' after lambda body`);
+        }
+        this.consume(); // consume '}'
+      } else {
+        // Single statement without braces
+        body = [this.parseExpression()];
+      }
+    } else if (this.match('LBRACE')) {
+      // Block-style lambda with '{'
+      this.consume(); // consume '{'
+      body = this.parseStatements(['RBRACE']);
+      if (!this.match('RBRACE')) {
+        throw new Error(`Parse error on line ${this.peek().line}: Expected '}' after lambda body`);
+      }
+      this.consume(); // consume '}'
+    } else {
+      throw new Error(`Parse error on line ${this.peek().line}: Expected '=>' or '{' after parameter list`);
+    }
+  
+    return {
+      type: 'LambdaExpression',
+      isAsync,
+      returnType,
+      parameters,
+      body,
+      line: returnTypeToken.line,
     };
   }
 
@@ -603,11 +783,34 @@ export default class Parser {
       return this.parseStructStatement();
     }
 
-    // Add support for function declaration at statement level:
+    // Support async returns (built-in or user-defined)
     if (
-      this.match('KEYWORD') &&
-      ['void', 'int', 'float', 'string', 'bool'].includes(this.peek().value) &&
+      // Check if 'async' is present
+      this.match('KEYWORD', 'async') &&
+      // Check if next token is a built-in type or IDENTIFIER (user-defined)
+      this.tokens[this.current + 1] &&
+      (
+        (this.tokens[this.current + 1].type === 'KEYWORD' &&
+          ['void', 'int', 'float', 'string', 'bool'].includes(this.tokens[this.current + 1].value)) ||
+        this.tokens[this.current + 1].type === 'IDENTIFIER'
+      ) &&
+      // Next token must be function name
+      this.tokens[this.current + 2] && this.tokens[this.current + 2].type === 'IDENTIFIER' &&
+      // Then '('
+      this.tokens[this.current + 3] && this.tokens[this.current + 3].type === 'LPAREN'
+    ) {
+      return this.parseFunctionDeclaration();
+    }
+
+    // Built-in or user-defined return type (non-async)
+    if (
+      // Built-in type keyword or IDENTIFIER
+      ((this.match('KEYWORD') &&
+        ['void', 'int', 'float', 'string', 'bool'].includes(this.peek().value))
+        || this.match('IDENTIFIER')) &&
+      // Next token is IDENTIFIER for function name
       this.tokens[this.current + 1] && this.tokens[this.current + 1].type === 'IDENTIFIER' &&
+      // Then '('
       this.tokens[this.current + 2] && this.tokens[this.current + 2].type === 'LPAREN'
     ) {
       return this.parseFunctionDeclaration();
