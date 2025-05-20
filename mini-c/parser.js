@@ -312,13 +312,13 @@ export default class Parser {
   parseComplexType(typeToken) {
     let type = typeToken.value;
 
-    // Check for function pointer types (e.g., int (int, string))
+    // Check for function pointer types (e.g., void (Event))
     if (this.match('LPAREN')) {
       this.consume(); // consume '('
       const paramTypes = [];
       while (!this.match('RPAREN')) {
         const paramTypeToken = this.consume();
-        if (paramTypeToken.type !== 'KEYWORD') {
+        if (paramTypeToken.type !== 'KEYWORD' && paramTypeToken.type !== 'IDENTIFIER') {
           throw new Error(`Parse error on line ${paramTypeToken.line}: Expected parameter type`);
         }
         paramTypes.push(paramTypeToken.value);
@@ -643,7 +643,7 @@ export default class Parser {
     const parameters = [];
     while (!this.match('RPAREN')) {
       const paramTypeToken = this.consume(); // e.g., 'Event'
-      const paramType = paramTypeToken.value;
+      const paramType = this.parseComplexType(paramTypeToken);
   
       if (!this.match('IDENTIFIER')) {
         throw new Error(`Parse error on line ${paramTypeToken.line}: Expected parameter name`);
