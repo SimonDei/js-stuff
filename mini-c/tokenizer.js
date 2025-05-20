@@ -1,8 +1,16 @@
+/** 
+ * A simple scanner (tokenizer) that breaks input code into tokens 
+ * like identifiers, keywords, operators, etc.
+ */
 export default class Scanner {
+  /**
+   * A set of recognized keywords in the language.
+   * @type {Set<string>}
+   */
   static KEYWORDS = new Set([
     'void', 'auto', 'int', 'float', 'string', 'null', 'bool',
     'true', 'false',
-    'await',
+    'async', 'await',
     'const', 'new', 'return',
     'if', 'else', 'elseif',
     'for', 'to', 'in',
@@ -12,20 +20,48 @@ export default class Scanner {
     'typedef',
   ]);
 
+  /**
+   * An array of tokens generated from the input.
+   * @type {Array<{type: string, value: string|null, line: number}>}
+   */
   tokens = [];
 
+  /**
+   * Checks if a character is alphanumeric or an underscore, dollar, etc.
+   * @param {string} char - The character to check.
+   * @returns {boolean} True if alphanumeric or special, false otherwise.
+   */
   isAlphaNumeric(char) {
     return /^[A-Za-z0-9_$#]$/.test(char);
   }
 
+  /**
+   * Checks if a character is recognized as an operator symbol.
+   * @param {string} char - The character to check.
+   * @returns {boolean} True if an operator symbol, false otherwise.
+   */
   isOperatorChar(char) {
-    return /[?!+*\/\-=.,:<>\[\]]/.test(char);
+    return /[&|?!+*\/\-=.,:<>\[\]]/.test(char);
   }
 
+  /**
+   * Checks if a string is one of the known language keywords.
+   * @param {string} str - The string to check.
+   * @returns {boolean} True if a keyword, false otherwise.
+   */
   isKeyword(str) {
     return Scanner.KEYWORDS.has(str.toLowerCase());
   }
 
+  /**
+   * Consumes a string literal starting at the given index 
+   * until it encounters the matching delimiter or end of input.
+   * @param {string} input - The entire source code.
+   * @param {number} index - Current scanning position in the source code.
+   * @param {string} delimiter - The string delimiter character.
+   * @param {number} line - Current line number for tokens.
+   * @returns {{index: number, line: number}} The updated index and line number.
+   */
   consumeString(input, index, delimiter, line) {
     let value = delimiter;
     index++;
@@ -43,6 +79,11 @@ export default class Scanner {
     return { index, line };
   }
 
+  /**
+   * Converts the given input code into a sequence of tokens.
+   * @param {string} input - The source code to tokenize.
+   * @returns {Array<{type: string, value: string|null, line: number}>} The list of tokens.
+   */
   tokenize(input) {
     this.tokens = [];
     let index = 0;
@@ -112,6 +153,8 @@ export default class Scanner {
         ')': 'RPAREN',
         '{': 'LBRACE',
         '}': 'RBRACE',
+        '[': 'LBRACKET',
+        ']': 'RBRACKET'
       };
 
       if (singleCharTokens[char]) {
@@ -129,7 +172,8 @@ export default class Scanner {
         continue;
       }
 
-      index++; // skip unrecognized
+      // Skip unrecognized characters
+      index++;
     }
 
     this.tokens.push({ type: 'EOF', value: null, line });
