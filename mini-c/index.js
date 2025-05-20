@@ -1,7 +1,8 @@
-import Scanner from './tokenizer.js';
-import Parser from './parser.js';
+import Scanner from './tokenizer-2.js';
+import Parser from './parser-2.js';
 // import Walker from './walker.js';
 import * as fs from 'fs';
+import CodeGenerator from './code-generator.js';
 
 //const userArgs = process.argv.slice(2);
 //let typesEnabled = true;
@@ -21,6 +22,11 @@ fs.writeFileSync('./tokens.json', '[\n' + tokens.reduce((acc, tok) => acc + `{ "
 const ast = new Parser(tokens).parse();
 
 fs.writeFileSync('./ast.json', JSON.stringify(ast, null, 2));
+
+const generator = new CodeGenerator();
+const source = ast.map(node => generator.generate(node)).join('\n\n');
+
+fs.writeFileSync('./source.js', source, { encoding: 'utf-8' });
 
 /*
 const walker = new Walker(ast, typesEnabled);
