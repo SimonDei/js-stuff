@@ -228,6 +228,11 @@ export default class Parser {
     ) {
       return this.parseLambdaExpression();
     }
+
+    // Skip EOL tokens before parsing
+    while (this.match('EOL')) {
+      this.consume();
+    }
   
     let left = this.parsePrimary();
   
@@ -631,8 +636,9 @@ export default class Parser {
     }
   
     // Parse the return type (e.g., 'void')
-    const returnTypeToken = this.consume();
-    const returnType = returnTypeToken.value;
+    const returnTypeToken = this.peek();
+    const returnType = this.parseComplexType(returnTypeToken);
+    this.consume(); // consume the return type token
   
     if (!this.match('LPAREN')) {
       throw new Error(`Parse error on line ${returnTypeToken.line}: Expected '(' after return type`);
