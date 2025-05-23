@@ -1,38 +1,43 @@
-import Scanner from './tokenizer-2.js';
-import Parser from './parser-2.js';
-// import Walker from './walker.js';
-import * as fs from 'fs';
+import { parseCode } from './chevro-parser.js';
+import { astBuilder } from './ast-builder.js';
 import CodeGenerator from './code-generator.js';
+import * as fs from 'fs';
 
-//const userArgs = process.argv.slice(2);
-//let typesEnabled = true;
+try {
+  const code = fs.readFileSync('./index.c2', 'utf-8');
 
-//if (userArgs.length > 0) {
-//  if (userArgs.includes('--types')) {
-//    typesEnabled = true;
-//  }
-//}
+  const { cst, tokens, lexErrors, parseErrors } = parseCode(code);
 
-const code = fs.readFileSync('./index.c', { encoding: 'utf-8' });
+  if (lexErrors.length > 0) {
+    console.error("Lexer Fehler:", lexErrors);
+  }
+  if (parseErrors.length > 0) {
+    console.error("Parser Fehler:", parseErrors);
+  }
 
-const tokens = new Scanner().tokenize(code);
+  if (lexErrors.length === 0 && parseErrors.length === 0) {
+    console.log("CST erfolgreich erstellt.");
+    // CST in Datei schreiben (optional, zum Debuggen)
+    fs.writeFileSync('cst.json', JSON.stringify(cst, null, 2));
+    fs.writeFileSync('tokens.json', JSON.stringify(tokens, null, 2));
 
-fs.writeFileSync('./tokens.json', '[\n' + tokens.reduce((acc, tok) => acc + `{ "type": "${tok.type}", "value": "${tok.value}", "line": ${tok.line} },\n`, '') + ']\n', { encoding: 'utf-8' });
+    // AST aus CST erstellen
+    const ast = astBuilder.visit(cst);
+    console.log("AST erfolgreich erstellt.");
+    fs.writeFileSync('ast.json', JSON.stringify(ast, null, 2)); // AST in Datei schreiben
 
-const ast = new Parser(tokens).parse();
-
-fs.writeFileSync('./ast.json', JSON.stringify(ast, null, 2));
-
-const generator = new CodeGenerator();
-const source = ast.map(node => generator.generate(node)).join('\n\n');
-
-fs.writeFileSync('./source.js', source, { encoding: 'utf-8' });
-
-/*
-const walker = new Walker(ast, typesEnabled);
-walker.walk();
-walker.addStdFunctions();
-walker.addImportStatements();
-
-fs.writeFileSync('./source.js', walker.getSource(), { encoding: 'utf-8' });
-*/
+    // Code aus AST generieren
+    const generator = new CodeGenerator();
+    // Der AST-Wurzelknoten ist { type: "Program", body: [...] }
+    // Wir rufen generate für jeden Knoten im body des Programms auf.
+    const generatedCode = ast.body.map(node => generator.generate(node)).join('\n\n');
+    
+    fs.writeFileSync('source.js', generatedCode, { encoding: 'utf-8' });
+    console.log("\nJavaScript Code wurde in source.js geschrieben.");
+  }
+} catch (error) {
+  console.error("Ein Fehler ist aufgetreten:", error.message);
+  if (error.stack) {
+    console.error(error.stack);
+  }
+}
