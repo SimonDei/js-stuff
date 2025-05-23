@@ -429,38 +429,103 @@ class CLanguageParser extends CstParser {
             ALT: () => this.SUBRULE(this.typeDefinition)
           },
           {
-            // GATE um sicherzustellen, dass es wie eine Funktionsdefinition aussieht
-            // Type Identifier ( ... oder Type[] Identifier ( ...
+            // GATE für functionDefinition
             GATE: () => {
               let lookaheadIndex = 1;
               const firstToken = this.LA(lookaheadIndex).tokenType;
 
-              // 1. Prüfen, ob das erste Token ein gültiger Typbezeichner ist
               const isValidStartType = isPrimitiveType(firstToken) || firstToken === Void || firstToken === Identifier;
               if (!isValidStartType) return false;
+              lookaheadIndex++;
 
-              lookaheadIndex++; // Zum Token nach dem Typ wechseln
-
-              // 2. Auf optionale Array-Klammern [] prüfen
               if (this.LA(lookaheadIndex).tokenType === LBracket) {
-                // Prüfen, ob nach LBracket ein RBracket folgt
                 if (this.LA(lookaheadIndex + 1).tokenType === RBracket) {
-                  lookaheadIndex += 2; // LBracket und RBracket überspringen
+                  lookaheadIndex += 2;
                 } else {
-                  // LBracket ohne RBracket ist hier kein gültiger Array-Spezifizierer für das GATE
                   return false;
                 }
               }
 
-              // 3. Das nächste Token sollte der Funktionsname (Identifier) sein
-              if (this.LA(lookaheadIndex).tokenType !== Identifier) return false;
+              if (this.LA(lookaheadIndex).tokenType !== Identifier) return false; // Funktionsname
+              lookaheadIndex++;
 
-              // 4. Das Token nach dem Funktionsnamen sollte LParen sein
-              if (this.LA(lookaheadIndex + 1).tokenType !== LParen) return false;
-
-              return true; // Sieht nach einer Funktionsdefinition aus
+              return this.LA(lookaheadIndex).tokenType === LParen; // Erwartet ( für Parameter
             },
             ALT: () => this.SUBRULE(this.functionDefinition)
+          },
+          {
+            // GATE für variableDeclaration
+            GATE: () => {
+              let laIdx = 1;
+              if (this.LA(laIdx).tokenType === Const) {
+                laIdx++;
+              }
+
+              const typeStartToken = this.LA(laIdx).tokenType;
+              if (!(isPrimitiveType(typeStartToken) || typeStartToken === Void || typeStartToken === Identifier)) {
+                return false;
+              }
+              laIdx++; // Nach dem ersten Teil des Typs (z.B. Int, Identifier)
+
+              // Berücksichtige optionale Array-Klammern des Typs (z.B. int[])
+              if (this.LA(laIdx).tokenType === LBracket && this.LA(laIdx + 1).tokenType === RBracket) {
+                laIdx += 2;
+              }
+
+              // Erwarte den Variablennamen (Identifier)
+              if (this.LA(laIdx).tokenType !== Identifier) return false;
+              laIdx++; // Nach dem Variablennamen
+
+              // Was folgt? Entweder Initialisierung `=`, Semikolon `;`
+              // oder C-Style Array-Klammern `[]` nach dem Namen.
+              const nextToken = this.LA(laIdx).tokenType;
+              if (nextToken === Equals || nextToken === Semicolon) {
+                return true;
+              }
+              // Für C-Style `int arr[] = ...` oder `int arr[];`
+              // Dies ist relevant, wenn die variableDeclaration Regel `name[]` unterstützt.
+              if (nextToken === LBracket && this.LA(laIdx + 1).tokenType === RBracket) {
+                const tokenAfterBrackets = this.LA(laIdx + 2).tokenType;
+                if (tokenAfterBrackets === Equals || tokenAfterBrackets === Semicolon) {
+                  return true;
+                }
+              }
+              return false;
+            },
+            ALT: () => this.SUBRULE(this.variableDeclaration)
+          },
+          {
+            // NEU: GATE für expressionStatement
+            // Diese Regel sollte zutreffen, wenn die spezifischeren Regeln für
+            // Funktions- oder Variablendeklarationen nicht gepasst haben.
+            // Ein Top-Level ExpressionStatement beginnt oft mit einem Identifier
+            // gefolgt von '.', '(', '[', '=', '++', '--', etc.
+            GATE: () => {
+              const t1 = this.LA(1).tokenType;
+              const t2 = this.LA(2).tokenType;
+
+              if (t1 === Identifier) {
+                // Beispiele:
+                // $.on = ...         (Identifier Dot)
+                // myFunction();       (Identifier LParen)
+                // myArray[0] = 1;   (Identifier LBracket)
+                // i = 0;            (Identifier Equals)
+                // i++;              (Identifier Increment)
+                // i--;              (Identifier Decrement)
+                return t2 === Dot || t2 === LParen || t2 === LBracket ||
+                       t2 === Equals || t2 === PlusEquals || t2 === MinusEquals ||
+                       t2 === Increment || t2 === Decrement;
+              }
+              // Beispiele: ++i; oder --i;
+              if ((t1 === Increment || t1 === Decrement) && t2 === Identifier) {
+                return true;
+              }
+              // Andere Anfänge von Ausdrücken (Literale, geklammerte Ausdrücke)
+              // sind auf Top-Level seltener als eigenständige Statements
+              // und könnten zu allgemein sein, wenn hier nicht sorgfältig behandelt.
+              return false;
+            },
+            ALT: () => this.SUBRULE(this.expressionStatement)
           }
         ]);
       });
