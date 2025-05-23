@@ -1,4 +1,4 @@
-import { CLanguageParser } from './chevo-parser.js'; // Importiere deine Parser-Klasse
+import { CLanguageParser } from './chevro-parser.js'; // Importiere deine Parser-Klasse
 
 // Die Basis-Visitor-Klasse von Chevrotain.
 // Wenn du nicht für jede Regel eine Methode implementieren willst,
@@ -20,6 +20,16 @@ class AstBuilder extends BaseCstVisitor {
     if (ctx.typeDefinition) {
       ctx.typeDefinition.forEach(tdCtx => {
         definitions.push(this.visit(tdCtx));
+      });
+    }
+    if (ctx.variableDeclaration) {
+      ctx.variableDeclaration.forEach(vdCtx => {
+        definitions.push(this.visit(vdCtx));
+      });
+    }
+    if (ctx.expressionStatement) {
+      ctx.expressionStatement.forEach(fdCtx => {
+        definitions.push(this.visit(fdCtx));
       });
     }
     if (ctx.functionDefinition) {
@@ -61,33 +71,45 @@ class AstBuilder extends BaseCstVisitor {
 
   functionDefinition(ctx) {
     let returnType = null;
-    ctx.typeSpecifier.forEach(typeCtx => {
-      returnType = this.visit(typeCtx);
-    });
+    // Annahme: typeSpecifier ist immer vorhanden und eindeutig für eine Funktionsdefinition gemäß Grammatik
+    if (ctx.typeSpecifier && ctx.typeSpecifier.length > 0) {
+        returnType = this.visit(ctx.typeSpecifier[0]);
+    }
+
     const functionName = ctx.Identifier[0].image;
-    const parameters = [];
-    if (ctx.parameterList) {
-      ctx.parameterList.forEach(paramCtx => {
-        parameters.push(this.visit(paramCtx));
-      });
+    
+    let parameters = []; // Standardmäßig ein leeres Array
+    if (ctx.parameterList && ctx.parameterList.length > 0) {
+      // ctx.parameterList[0] ist der CST-Knoten für die 'parameterList'-Regel.
+      // this.visit(ctx.parameterList[0]) ruft den 'parameterList'-Visitor auf,
+      // der ein flaches Array von Parameter-AST-Knoten zurückgibt.
+      parameters = this.visit(ctx.parameterList[0]);
     }
-    const body = [];
-    if (ctx.block) {
-      ctx.block.forEach(blockCtx => {
-        blockCtx.children.statement.forEach(statementCtx => {
-          body.push(this.visit(statementCtx));
-        });
-      });
+
+    let functionBodyAst;
+    let isArrowExpressionBody = false;
+
+    if (ctx.Arrow && ctx.expression && ctx.expression.length > 0) {
+      // Arrow-Funktion mit einem Expression-Body
+      functionBodyAst = this.visit(ctx.expression[0]);
+      isArrowExpressionBody = true;
+    } else if (ctx.block && ctx.block.length > 0) {
+      // Reguläre Funktion mit einem Block-Body
+      functionBodyAst = this.visit(ctx.block[0]); // this.visit(blockCtx) gibt einen BlockStatement-AST zurück
+    } else {
+      // Sollte basierend auf der Grammatik nicht passieren (functionDefinition erfordert entweder Block oder Arrow+Expression)
+      // Als Fallback einen leeren Block erstellen.
+      functionBodyAst = { type: "BlockStatement", body: [] };
+      console.warn("Funktionsdefinition ohne korrekten Body:", ctx);
     }
+
     return {
       type: "FunctionDeclaration",
       id: { type: "Identifier", name: functionName },
-      params: parameters,
+      params: parameters, // Ist jetzt ein flaches Array von Parameter-ASTs
       returnType: returnType,
-      body: {
-        type: "BlockStatement",
-        body: body
-      }
+      body: functionBodyAst, // Kann entweder eine Expression oder ein BlockStatement sein
+      expression: isArrowExpressionBody // true, wenn Body eine Expression ist, false, wenn BlockStatement
     };
   }
 
@@ -118,12 +140,12 @@ class AstBuilder extends BaseCstVisitor {
 
   parameterList(ctx) {
     const parameters = [];
-    if (ctx.parameter) {
+    if (ctx.parameter) { // ctx.parameter ist ein Array von 'parameter' CST-Knoten
       ctx.parameter.forEach(paramCtx => {
-        parameters.push(this.visit(paramCtx));
+        parameters.push(this.visit(paramCtx)); // this.visit(paramCtx) gibt einen einzelnen Parameter-AST-Knoten zurück
       });
     }
-    return parameters;
+    return parameters; // Gibt ein flaches Array von Parameter-AST-Knoten zurück
   }
 
   parameter(ctx) {
@@ -170,16 +192,16 @@ class AstBuilder extends BaseCstVisitor {
   }
 
   block(ctx) {
-    if (ctx.statement) {
-      const statements = [];
+    const statements = [];
+    if (ctx.statement) { // ctx.statement ist ein Array von statement CST-Knoten
       ctx.statement.forEach(statementCtx => {
         statements.push(this.visit(statementCtx));
       });
-      return {
-        type: "BlockStatement",
-        body: statements
-      };
     }
+    return {
+      type: "BlockStatement",
+      body: statements // Dies ist ein leeres Array, wenn ctx.statement nicht vorhanden war
+    };
   }
 
   statement(ctx) {
