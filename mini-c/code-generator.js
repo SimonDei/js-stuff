@@ -9,7 +9,11 @@ export default class CodeGenerator {
   }
 
   generate(node) {
+    if (!node) return ""; // Guard against null or undefined nodes
+
     switch (node.type) {
+      case 'Program': // Programme werden typischerweise außerhalb iteriert
+        return node.body.map(n => this.generate(n)).join('\n\n');
       case 'FunctionDeclaration':
         return this.generateFunctionDeclaration(node);
       case 'VariableDeclaration':
@@ -18,7 +22,7 @@ export default class CodeGenerator {
         return this.generateReturnStatement(node);
       case 'IfStatement':
         return this.generateIfStatement(node);
-      case 'ForStatement':
+      case 'ForStatement': // Behalten, falls es später verwendet wird
         return this.generateForStatement(node);
       case 'ExpressionStatement':
         return this.generateExpressionStatement(node);
@@ -30,22 +34,21 @@ export default class CodeGenerator {
         return this.generateMemberExpression(node);
       case 'AssignmentExpression':
         return this.generateAssignmentExpression(node);
-      case 'NumericLiteral':
-        return this.generateNumericLiteral(node);
+      case 'Literal': // Ersetzt NumericLiteral und StringLiteral
+        return this.generateLiteral(node);
       case 'Identifier':
         return this.generateIdentifier(node);
       case 'CallExpression':
         return this.generateCallExpression(node);
-      case 'StringLiteral':
-        return this.generateStringLiteral(node);
       case 'LambdaExpression':
         return this.generateLambdaExpression(node);
-      case 'StructDeclaration':
-        return this.generateStructDeclaration(node);
-      case 'StructInitialization': // Add support for StructInitialization
-        return this.generateStructInitialization(node);
+      case 'ObjectLiteral': // NEU
+        return this.generateObjectLiteral(node);
+      // Entfernt: StructDeclaration, StructInitialization, NumericLiteral, StringLiteral
       default:
-        throw new Error(`Unknown node type: ${node.type}`);
+        console.warn(`Unknown AST node type: ${node.type}`, node);
+        // throw new Error(`Unknown node type: ${node.type}`);
+        return `// Unknown node type: ${node.type}`; // Sanfterer Fehler für unbekannte Typen
     }
   }
 
@@ -55,85 +58,106 @@ export default class CodeGenerator {
     return `${left} ${node.operator} ${right}`;
   }
 
-  generateStructInitialization(node) {
-    // Generate code for initializing a struct
-    const fields = node.fields.map((field, index) => {
-      return this.generate(field);
-    });
-    return `new ${node.structName}(${fields.map(f => `${f}, `).join('').slice(0, -2)})`;
-  }
-
-  generateStructDeclaration(node) {
-    // Add the struct name to the set of user-defined structs
-    this.userDefinedStructs.set(node.name, node.fields);
-    let classDef = `class ${node.name} {\n`;
-    this.indentationLevel++;
-    classDef += `${this.indent()}constructor(${node.fields.map(field => field.name).join(', ')}) {\n`;
-    this.indentationLevel++;
-    classDef += node.fields.map(field => `${this.indent()}this.${field.name} = ${field.name};`).join('\n') + '\n';
-    this.indentationLevel--;
-    classDef += `${this.indent()}}\n`;
-    this.indentationLevel--;
-    return classDef + `${this.indent()}}`;
-  }
+  // Entfernt: generateStructInitialization(node)
+  // Entfernt: generateStructDeclaration(node)
 
   generateVariableDeclaration(node) {
-    const initCode = node.init
-      ? ` = ${this.generate(node.init)}`
-      : this.userDefinedStructs.has(node.varType)
-      ? ` = new ${node.varType}()`
-      : '';
-    return `${node.isConst ? 'const' : 'let'} ${node.name}${initCode};`;
+    const varName = this.generate(node.id); // AST hat id: { type: "Identifier", name: "..." }
+    const initCode = node.init ? ` = ${this.generate(node.init)}` : '';
+    // Typinformation (node.varType) wird in JS nicht direkt verwendet, aber wir haben sie im AST.
+    return `${this.indent()}${node.isConst ? 'const' : 'let'} ${varName}${initCode};`;
   }
 
   generateFunctionDeclaration(node) {
-    const asyncKeyword = node.isAsync ? 'async ' : ''; // Add 'async' if the function is async
-    const params = node.parameters.map(param => param.name).join(', ');
-    this.indentationLevel++;
-    const body = node.body.map(stmt => this.indent() + this.generate(stmt)).join('\n');
-    this.indentationLevel--;
-    return `${asyncKeyword}function ${node.name}(${params}) {\n${body}\n}`;
+    const asyncKeyword = node.isAsync ? 'async ' : ''; // isAsync ist nicht im aktuellen AST, aber gut für die Zukunft
+    const functionName = this.generate(node.id);
+
+    // AST-Struktur für params: [[{type: "Parameter", name: "n", ...}]] oder [] für void
+    let params = '';
+    if (node.params && node.params.length > 0 && node.params[0] && node.params[0].length > 0) {
+        // Prüfen, ob der erste Parameter 'void' ist und keine weiteren Parameter vorhanden sind
+        if (node.params[0].length === 1 && node.params[0][0].typeAnnotation && node.params[0][0].typeAnnotation.name === 'void' && !node.params[0][0].name) {
+            params = ''; // void parameter in C/C++ means no parameters in JS
+        } else {
+            params = node.params[0].map(paramNode => this.generateParameter(paramNode)).join(', ');
+        }
+    }
+
+
+    // AST-Struktur für body: { type: "BlockStatement", body: [...] }
+    let bodyContent = "";
+    if (node.body && node.body.body) {
+      this.indentationLevel++;
+      bodyContent = node.body.body.map(stmt => this.generate(stmt)).join('\n');
+      this.indentationLevel--;
+    }
+    return `${this.indent()}${asyncKeyword}function ${functionName}(${params}) {\n${bodyContent}\n${this.indent()}}`;
+  }
+
+  generateParameter(node) {
+    // node ist ein Parameter-Objekt, z.B. { type: "Parameter", name: "n", ... }
+    return node.name; // Wir brauchen nur den Namen für JS-Code
   }
 
   generateReturnStatement(node) {
-    return `return ${this.generate(node.argument)};`;
+    return `${this.indent()}return ${this.generate(node.argument)};`;
   }
 
   generateIfStatement(node) {
-    const condition = this.generate(node.condition);
+    const condition = this.generate(node.test); // AST verwendet 'test'
 
-    this.indentationLevel++;
-    const consequent = node.consequent.map(stmt => this.indent() + this.generate(stmt)).join('\n');
-    this.indentationLevel--;
-
-    let code = `if (${condition}) {\n${consequent}\n${this.indent()}}`;
-
-    if (node.alternate) {
+    let consequentCode = "";
+    if (node.consequent && node.consequent.body) { // AST verwendet 'consequent.body' für BlockStatement
       this.indentationLevel++;
-      const alternate = Array.isArray(node.alternate)
-        ? node.alternate.map(stmt => this.indent() + this.generate(stmt)).join('\n')
-        : this.generate(node.alternate);
+      consequentCode = node.consequent.body.map(stmt => this.generate(stmt)).join('\n');
       this.indentationLevel--;
-      code += ` else {\n${alternate}\n${this.indent()}}`;
+    } else if (node.consequent) { // Falls 'consequent' ein einzelnes Statement ist (nicht im aktuellen AST)
+        this.indentationLevel++;
+        consequentCode = this.generate(node.consequent);
+        this.indentationLevel--;
     }
 
+
+    let code = `${this.indent()}if (${condition}) {\n${consequentCode}\n${this.indent()}}`;
+
+    if (node.alternate) {
+      let alternateCode = "";
+      if (node.alternate.type === 'IfStatement') { // else if
+        // Kein zusätzliches Einrücken für 'else if', da generateIfStatement dies bereits handhabt
+        alternateCode = this.generate(node.alternate);
+         code += ` else ${alternateCode}`; // 'else' direkt vor dem 'if'
+      } else if (node.alternate.body) { // else { block }
+        this.indentationLevel++;
+        alternateCode = node.alternate.body.map(stmt => this.generate(stmt)).join('\n');
+        this.indentationLevel--;
+        code += ` else {\n${alternateCode}\n${this.indent()}}`;
+      } else { // else single_statement (nicht im aktuellen AST)
+        this.indentationLevel++;
+        alternateCode = this.generate(node.alternate);
+        this.indentationLevel--;
+        code += ` else {\n${alternateCode}\n${this.indent()}}`;
+      }
+    }
     return code;
   }
 
   generateForStatement(node) {
-    const initializer = this.generate(node.initializer);
-    const condition = this.generate(node.condition);
-    const increment = this.generate(node.increment);
+    const initializer = node.init ? this.generate(node.init).replace(';', '') : ''; // Entferne Semikolon, falls es von var decl kommt
+    const condition = node.test ? this.generate(node.test) : '';
+    const increment = node.update ? this.generate(node.update) : '';
 
-    this.indentationLevel++;
-    const body = node.body.map(stmt => this.indent() + this.generate(stmt)).join('\n');
-    this.indentationLevel--;
+    let bodyCode = "";
+    if (node.body && node.body.body) {
+        this.indentationLevel++;
+        bodyCode = node.body.body.map(stmt => this.generate(stmt)).join('\n');
+        this.indentationLevel--;
+    }
 
-    return `for (${initializer} ${condition}; ${increment}) {\n${body}\n${this.indent()}}`;
+    return `${this.indent()}for (${initializer}; ${condition}; ${increment}) {\n${bodyCode}\n${this.indent()}}`;
   }
 
   generateExpressionStatement(node) {
-    return `${this.generate(node.expression)};`;
+    return `${this.indent()}${this.generate(node.expression)};`;
   }
 
   generateBinaryExpression(node) {
@@ -163,8 +187,12 @@ export default class CodeGenerator {
     return `${object}.${property}`;
   }
 
-  generateNumericLiteral(node) {
-    return node.value;
+  // Ersetzt generateNumericLiteral und generateStringLiteral
+  generateLiteral(node) {
+    if (typeof node.value === 'string') {
+      return JSON.stringify(node.value); // Korrektes Escaping für Strings
+    }
+    return node.raw !== undefined ? node.raw : String(node.value); // Bevorzuge raw, wenn vorhanden (z.B. für Zahlen)
   }
 
   generateIdentifier(node) {
@@ -177,15 +205,38 @@ export default class CodeGenerator {
     return `${callee}(${args})`;
   }
 
-  generateStringLiteral(node) {
-    return node.value;
-  }
+  // Entfernt: generateStringLiteral(node) da von generateLiteral abgedeckt
 
   generateLambdaExpression(node) {
-    const params = node.parameters.map(param => param.name).join(', ');
+    // AST-Struktur für params: [{type: "Parameter", name: "e", ...}]
+    const params = node.params.map(paramNode => this.generateParameter(paramNode)).join(', ');
+
+    // AST-Struktur für body: { type: "BlockStatement", body: [...] }
+    let bodyContent = "";
+    if (node.body && node.body.body) {
+      this.indentationLevel++;
+      bodyContent = node.body.body.map(stmt => this.generate(stmt)).join('\n');
+      this.indentationLevel--;
+    }
+    // Lambdas in JS sind oft kürzer, aber wir halten uns an die Blockstruktur des AST
+    return `(${params}) => {\n${bodyContent}\n${this.indent()}}`;
+  }
+
+  // NEU für ObjectLiteral
+  generateObjectLiteral(node) {
+    if (!node.properties || node.properties.length === 0) {
+      return '{}';
+    }
     this.indentationLevel++;
-    const body = node.body.map(stmt => this.indent() + this.generate(stmt)).join('\n');
+    const props = node.properties.map(prop => this.generateObjectProperty(prop)).join(',\n');
     this.indentationLevel--;
-    return `(${params}) => {\n${body}\n${this.indent()}}`;
+    return `{\n${props}\n${this.indent()}}`;
+  }
+
+  // NEU für ObjectProperty (intern von generateObjectLiteral verwendet)
+  generateObjectProperty(node) {
+    const key = this.generate(node.key); // key ist ein Identifier
+    const value = this.generate(node.value);
+    return `${this.indent()}${key}: ${value}`;
   }
 }
