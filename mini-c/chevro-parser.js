@@ -430,21 +430,35 @@ class CLanguageParser extends CstParser {
           },
           {
             // GATE um sicherzustellen, dass es wie eine Funktionsdefinition aussieht
-            // Type Identifier ( ...
+            // Type Identifier ( ... oder Type[] Identifier ( ...
             GATE: () => {
-              let ltIdx = 1;
-              const typeToken = this.LA(ltIdx).tokenType;
-              // Prüfen, ob das erste Token ein gültiger Typbezeichner ist (primitiv, void oder Identifier)
-              const isValidStartType = isPrimitiveType(typeToken) || typeToken === Void || typeToken === Identifier;
+              let lookaheadIndex = 1;
+              const firstToken = this.LA(lookaheadIndex).tokenType;
+
+              // 1. Prüfen, ob das erste Token ein gültiger Typbezeichner ist
+              const isValidStartType = isPrimitiveType(firstToken) || firstToken === Void || firstToken === Identifier;
               if (!isValidStartType) return false;
 
-              // Nächstes Token sollte der Funktionsname (Identifier) sein
-              const nameToken = this.LA(ltIdx + 1).tokenType;
-              if (nameToken !== Identifier) return false;
-              
-              // Darauf sollte eine öffnende Klammer folgen
-              const lParenToken = this.LA(ltIdx + 2).tokenType;
-              return lParenToken === LParen;
+              lookaheadIndex++; // Zum Token nach dem Typ wechseln
+
+              // 2. Auf optionale Array-Klammern [] prüfen
+              if (this.LA(lookaheadIndex).tokenType === LBracket) {
+                // Prüfen, ob nach LBracket ein RBracket folgt
+                if (this.LA(lookaheadIndex + 1).tokenType === RBracket) {
+                  lookaheadIndex += 2; // LBracket und RBracket überspringen
+                } else {
+                  // LBracket ohne RBracket ist hier kein gültiger Array-Spezifizierer für das GATE
+                  return false;
+                }
+              }
+
+              // 3. Das nächste Token sollte der Funktionsname (Identifier) sein
+              if (this.LA(lookaheadIndex).tokenType !== Identifier) return false;
+
+              // 4. Das Token nach dem Funktionsnamen sollte LParen sein
+              if (this.LA(lookaheadIndex + 1).tokenType !== LParen) return false;
+
+              return true; // Sieht nach einer Funktionsdefinition aus
             },
             ALT: () => this.SUBRULE(this.functionDefinition)
           }
