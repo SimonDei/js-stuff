@@ -44,6 +44,8 @@ export default class CodeGenerator {
         return this.generateLambdaExpression(node);
       case 'ObjectLiteral': // NEU
         return this.generateObjectLiteral(node);
+      case 'ArrayLiteral': // NEU
+        return this.generateArrayLiteral(node);
       // Entfernt: StructDeclaration, StructInitialization, NumericLiteral, StringLiteral
       default:
         console.warn(`Unknown AST node type: ${node.type}`, node);
@@ -72,26 +74,38 @@ export default class CodeGenerator {
     const asyncKeyword = node.isAsync ? 'async ' : ''; // isAsync ist nicht im aktuellen AST, aber gut für die Zukunft
     const functionName = this.generate(node.id);
 
-    // AST-Struktur für params: [[{type: "Parameter", name: "n", ...}]] oder [] für void
-    let params = '';
-    if (node.params && node.params.length > 0 && node.params[0] && node.params[0].length > 0) {
-        // Prüfen, ob der erste Parameter 'void' ist und keine weiteren Parameter vorhanden sind
-        if (node.params[0].length === 1 && node.params[0][0].typeAnnotation && node.params[0][0].typeAnnotation.name === 'void' && !node.params[0][0].name) {
-            params = ''; // void parameter in C/C++ means no parameters in JS
+    let paramsString = '';
+    if (node.params && node.params.length > 0) {
+        // node.params ist jetzt ein flaches Array von Parameter-AST-Knoten
+        if (node.params.length === 1 && node.params[0].typeAnnotation && node.params[0].typeAnnotation.name === 'void' && !node.params[0].name) {
+            paramsString = ''; // void-Parameter in C/C++ bedeutet keine Parameter in JS
         } else {
-            params = node.params[0].map(paramNode => this.generateParameter(paramNode)).join(', ');
+            paramsString = node.params.map(paramNode => this.generateParameter(paramNode)).join(', ');
         }
     }
 
-
-    // AST-Struktur für body: { type: "BlockStatement", body: [...] }
-    let bodyContent = "";
-    if (node.body && node.body.body) {
-      this.indentationLevel++;
-      bodyContent = node.body.body.map(stmt => this.generate(stmt)).join('\n');
-      this.indentationLevel--;
+    let generatedBodyContent;
+    if (node.expression === true) { // Zeigt an, dass der Body eine Expression ist
+        const expressionCode = this.generate(node.body); // node.body ist der Expression-AST
+        this.indentationLevel++;
+        generatedBodyContent = `${this.indent()}return ${expressionCode};`; // Kein \n am Ende hier
+        this.indentationLevel--;
+    } else { // Body ist ein BlockStatement
+        if (node.body && node.body.type === 'BlockStatement' && node.body.body) {
+            this.indentationLevel++;
+            generatedBodyContent = node.body.body.map(stmt => this.generate(stmt)).join('\n');
+            this.indentationLevel--;
+        } else {
+            generatedBodyContent = ""; // Leerer Block
+        }
     }
-    return `${this.indent()}${asyncKeyword}function ${functionName}(${params}) {\n${bodyContent}\n${this.indent()}}`;
+    
+    // Füge einen Zeilenumbruch hinzu, wenn der Body Inhalt hat
+    if (generatedBodyContent !== "") {
+        generatedBodyContent += '\n';
+    }
+
+    return `${this.indent()}${asyncKeyword}function ${functionName}(${paramsString}) {\n${generatedBodyContent}${this.indent()}}`;
   }
 
   generateParameter(node) {
@@ -142,9 +156,9 @@ export default class CodeGenerator {
   }
 
   generateForStatement(node) {
-    const initializer = node.init ? this.generate(node.init).replace(';', '') : ''; // Entferne Semikolon, falls es von var decl kommt
-    const condition = node.test ? this.generate(node.test) : '';
-    const increment = node.update ? this.generate(node.update) : '';
+    const initializer = node.init ? this.generate(node.init).replace(';', '').trim() : ''; // Entferne Semikolon, falls es von var decl kommt
+    const condition = node.test ? this.generate(node.test).trim() : '';
+    const increment = node.update ? this.generate(node.update).trim() : '';
 
     let bodyCode = "";
     if (node.body && node.body.body) {
@@ -184,7 +198,11 @@ export default class CodeGenerator {
   generateMemberExpression(node) {
     const object = this.generate(node.object);
     const property = this.generate(node.property);
-    return `${object}.${property}`;
+    if (node.computed) {
+      return `${object}[${property}]`; // Klammernotation für computed: true
+    } else {
+      return `${object}.${property}`; // Punktnotation für computed: false
+    }
   }
 
   // Ersetzt generateNumericLiteral und generateStringLiteral
@@ -238,5 +256,16 @@ export default class CodeGenerator {
     const key = this.generate(node.key); // key ist ein Identifier
     const value = this.generate(node.value);
     return `${this.indent()}${key}: ${value}`;
+  }
+
+  // NEU für ArrayLiteral
+  generateArrayLiteral(node) {
+    if (!node.elements || node.elements.length === 0) {
+      return '[]';
+    }
+    this.indentationLevel++;
+    const elems = node.elements.map(elem => this.generate(elem)).join(', ');
+    this.indentationLevel--;
+    return `[${elems}]`;
   }
 }
