@@ -69,6 +69,9 @@ const NotEqual = createToken({ name: "NotEqual", pattern: /!=/ });
 const LogicalAnd = createToken({ name: "LogicalAnd", pattern: /&&/ });
 const LogicalOr = createToken({ name: "LogicalOr", pattern: /\|\|/ });
 
+// NEUES TOKEN für logisches NICHT
+const Not = createToken({ name: "Not", pattern: /!/ });
+
 // Unary-Operatoren
 const Increment = createToken({ name: "Increment", pattern: /\+\+/ });
 const Decrement = createToken({ name: "Decrement", pattern: /--/ });
@@ -90,6 +93,9 @@ const Equals = createToken({ name: "Equals", pattern: /=/ });
 // NEUES TOKEN für Arrow-Funktionen
 const Arrow = createToken({ name: "Arrow", pattern: /=>/ });
 
+// NEUES TOKEN für Lambda-Rückgabetyp-Pfeil
+const ThinArrow = createToken({ name: "ThinArrow", pattern: /->/ });
+
 // String Literals
 const StringLiteral = createToken({
   name: "StringLiteral",
@@ -101,25 +107,30 @@ const allTokens = [
   WhiteSpace,
   EOL,
   // Keywords zuerst
-  Typedef, // Typedef Token hinzugefügt
+  Typedef, 
   Null,
   Int, Void, Return, Float, String, Auto,
   Const,
   If, Else, For,
+  // Logische Operatoren
   LogicalAnd, LogicalOr,
-  // Vergleichsoperatoren (WICHTIG: >= und <= vor > und <)
-  GreaterEqual, LessEqual, EqualEqual, NotEqual,
+  // Vergleichsoperatoren (WICHTIG: >= und <= vor > und <, != vor !)
+  GreaterEqual, LessEqual, EqualEqual, NotEqual, // NotEqual VOR Not
+  Not, // Not NACH NotEqual
   GreaterThan, LessThan,
   // Assignment-Operatoren (WICHTIG: += und -= vor + und -)
-  PlusEquals, MinusEquals,
+  // ThinArrow VOR Minus, da '-' ein Präfix von '->' ist
+  ThinArrow, 
+  PlusEquals, MinusEquals, // PlusEquals und MinusEquals können hier bleiben oder nach ThinArrow/Minus
   // Unary-Operatoren (WICHTIG: vor arithmetischen Operatoren wegen ++ und --)
   Increment, Decrement,
-  // Arithmetik-Operatoren (WICHTIG: Plus vor Minus wegen ++)
-  Plus, Minus, Multiply, Divide,
+  // Arithmetik-Operatoren
+  Plus, Minus, Multiply, Divide, // Minus NACH ThinArrow
   // Member-Zugriff
   Dot,
-  // Arrow-Token
-  Arrow, // Arrow-Token hinzugefügt
+  // Arrow-Tokens
+  Arrow, 
+  // ThinArrow wurde nach oben verschoben
   // Dann andere Tokens
   Number, StringLiteral, Identifier,
   // Delimiter
@@ -171,7 +182,11 @@ class CLanguageParser extends CstParser {
       });
       this.CONSUME(RParen);   // Parameterliste Ende
 
-      // Hier könnten optional mutable, exception spec, attributes, trailing return type -> Type geparst werden.
+      // NEU: Optionaler Trailing Return Type
+      this.OPTION2(() => { // Suffix 2 für Eindeutigkeit der OPTION
+        this.CONSUME(ThinArrow);
+        this.SUBRULE(this.typeSpecifier, { LABEL: "lambdaReturnType" });
+      });
 
       this.SUBRULE(this.block, { LABEL: "lambdaBody" }); // Block-Körper
     });
@@ -271,11 +286,18 @@ class CLanguageParser extends CstParser {
             this.CONSUME2(Identifier); // Spezifisch für --Identifier, Suffix hinzugefügt
           }
         },
+        { // NEU: Logical NOT !expression
+          GATE: () => this.LA(1).tokenType === Not,
+          ALT: () => {
+            this.CONSUME(Not);
+            this.SUBRULE(this.unaryExpression, { LABEL: "operand" }); // Behält das erste ohne Suffix
+          }
+        },
         { // Unäres Minus
           GATE: () => this.LA(1).tokenType === Minus,
           ALT: () => {
             this.CONSUME(Minus);
-            this.SUBRULE(this.unaryExpression, { LABEL: "operand" }); // z.B. -x oder -(a+b)
+            this.SUBRULE2(this.unaryExpression, { LABEL: "operand" }); // Füge Suffix '2' hinzu
           }
         },
         { // Fallback zu Postfix-Ausdrücken (die primäre Ausdrücke beinhalten)
