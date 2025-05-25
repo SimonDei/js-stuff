@@ -418,7 +418,7 @@ class AstBuilder extends BaseCstVisitor {
   }
 
   unaryExpression(ctx) {
-    // Grammatik: ++Identifier oder --Identifier oder -unaryExpression oder postfixExpression
+    // Grammatik: ++Identifier oder --Identifier oder -unaryExpression oder postfixExpression oder !unaryExpression
     if (ctx.Increment && ctx.Identifier) { // Prefix ++
       return {
         type: "UnaryExpression",
@@ -431,6 +431,13 @@ class AstBuilder extends BaseCstVisitor {
         type: "UnaryExpression",
         operator: "--",
         argument: { type: "Identifier", name: ctx.Identifier[0].image },
+        prefix: true
+      };
+    } else if (ctx.Not && ctx.operand) { // NEU: Logical NOT
+      return {
+        type: "UnaryExpression",
+        operator: "!",
+        argument: this.visit(ctx.operand[0]),
         prefix: true
       };
     } else if (ctx.Minus && ctx.operand) { // Unäres Minus
@@ -546,6 +553,11 @@ class AstBuilder extends BaseCstVisitor {
       params = this.visit(ctx.lambdaParameters[0]);
     }
 
+    let returnType = null; // Initialisieren mit null
+    if (ctx.lambdaReturnType && ctx.lambdaReturnType[0]) {
+      returnType = this.visit(ctx.lambdaReturnType[0]);
+    }
+
     let body;
     if (ctx.lambdaBody && ctx.lambdaBody[0]) {
       // ctx.lambdaBody[0] ist der CST-Knoten für 'block'
@@ -557,6 +569,7 @@ class AstBuilder extends BaseCstVisitor {
 
     return {
       type: "LambdaExpression", // Oder "ArrowFunctionExpression" je nach Konvention
+      returnType: returnType, // Hinzugefügter optionaler Rückgabetyp
       params: params, // Sollte ein Array von Parameter-AST-Knoten sein
       body: body      // Sollte ein BlockStatement-AST-Knoten sein
       // async: false, // Lambdas sind in C++-Syntax typischerweise nicht async per se
