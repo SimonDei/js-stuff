@@ -20,15 +20,23 @@ int main(void) {
 
   int? optionalNumber = null;
 
-  const string message = "test" || " message";
+  const string message = 'test' || ' message';
 
   const object person = {
-    name = "John",
+    name = 'John',
     age = 30,
-    isStudent = false
+    isStudent = []() -> bool {
+      if (this.age < 18) {
+        return true;
+      }
+      return false;
+    },
+    isEmployed = []() -> bool {
+      return this.age >= 18;
+    }
   };
 
-  const string pet = person?.pet ?? "No pet";
+  const string pet = person?.pet ?? 'No pet';
 
   for (int i = 0; i < numbers.length; i++) {
     console.log(numbers[i]);
@@ -38,12 +46,12 @@ int main(void) {
     console.log(number);
   }
 
-  $("#myButton").on("click", [&](Event e) -> void {
+  $('#myButton').on('click', [&](Event e) -> void {
     e.preventDefault();
-    console.log("Button clicked!");
+    console.log('Button clicked!');
   });
 
-  $("#myList").delegate("click", "li", [](Event e) -> void {
-    console.log("List item clicked: " + e.target.textContent);
+  $('#myList').delegate('click', 'li', [](Event e) -> void {
+    console.log('List item clicked: ' + e.target.textContent);
   });
 }
