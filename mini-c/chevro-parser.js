@@ -107,7 +107,7 @@ const ThinArrow = createToken({ name: "ThinArrow", pattern: /->/ });
 // String Literals
 const StringLiteral = createToken({
   name: "StringLiteral",
-  pattern: /"([^"\\]|\\.)*"/
+  pattern: /"([^"\\]|\\.)*"|'([^'\\]|\\.)*'/ // Erweitert um Single-Quotes
 });
 
 // Alle Tokens in der richtigen Reihenfolge
