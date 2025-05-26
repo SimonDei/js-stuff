@@ -24,6 +24,8 @@ export default class CodeGenerator {
         return this.generateIfStatement(node);
       case 'ForStatement': // Behalten, falls es später verwendet wird
         return this.generateForStatement(node);
+      case 'ForEachStatement': // NEUER CASE
+        return this.generateForEachStatement(node);
       case 'ExpressionStatement':
         return this.generateExpressionStatement(node);
       case 'BinaryExpression':
@@ -47,6 +49,10 @@ export default class CodeGenerator {
       case 'ArrayLiteral': // NEU
         return this.generateArrayLiteral(node);
       // Entfernt: StructDeclaration, StructInitialization, NumericLiteral, StringLiteral
+      case 'LogicalExpression': // NEU
+        return this.generateLogicalExpression(node);
+      case 'TypeDefinition': // NEU
+        return this.generateTypeDefinition(node);
       default:
         console.warn(`Unknown AST node type: ${node.type}`, node);
         // throw new Error(`Unknown node type: ${node.type}`);
@@ -54,10 +60,72 @@ export default class CodeGenerator {
     }
   }
 
+  // Hilfsfunktion zum Mappen von C-Typen zu JSDoc-Typen
+  mapCTypeToJsDoc(cTypeName) {
+    if (!cTypeName) return "any";
+    switch (cTypeName) {
+      case "int":
+      case "float":
+        return "number";
+      case "string":
+        return "string";
+      case "bool":
+        return "boolean";
+      case "void":
+        return "void";
+      default:
+        return cTypeName; // Für benutzerdefinierte Typen wie 'Event', 'Element'
+    }
+  }
+
+  // Hilfsfunktion, um einen TypeSpecifier AST-Knoten in einen JSDoc String umzuwandeln
+  generateJsDocTypeFromSpecifier(typeSpecifierNode) {
+    if (!typeSpecifierNode || !typeSpecifierNode.name) return "any";
+
+    let jsDocType = this.mapCTypeToJsDoc(typeSpecifierNode.name);
+
+    if (typeSpecifierNode.isBaseTypeNullable) {
+      jsDocType = `${jsDocType}|null`;
+    }
+
+    if (typeSpecifierNode.isArray) {
+      jsDocType = `Array<${jsDocType}>`;
+      if (typeSpecifierNode.isArrayItselfNullable) {
+        jsDocType = `${jsDocType}|null`;
+      }
+    }
+    return jsDocType;
+  }
+
   generateAssignmentExpression(node) {
     const left = this.generate(node.left);
     const right = this.generate(node.right);
     return `${left} ${node.operator} ${right}`;
+  }
+
+  generateTypeDefinition(node) {
+    const newTypeName = node.newType;
+    let oldTypeString = "any"; // Fallback
+
+    if (node.oldType.type === "TypeSpecifier") {
+      oldTypeString = this.generateJsDocTypeFromSpecifier(node.oldType);
+    } else if (node.oldType.type === "FunctionPointerType") {
+      const returnTypeNode = node.oldType.returnType; // Sollte ein TypeSpecifier-Knoten sein
+      const returnTypeJsDoc = returnTypeNode ? this.generateJsDocTypeFromSpecifier(returnTypeNode) : "any";
+
+      const params = node.oldType.params.map(p => {
+        let paramJsDocType = "any";
+        if (p.typeAnnotation) { // p.typeAnnotation ist der TypeSpecifier-Knoten des Parameters
+          paramJsDocType = this.generateJsDocTypeFromSpecifier(p.typeAnnotation);
+        }
+        const paramNameStr = p.name ? p.name + ': ' : '';
+        return `${paramNameStr}${paramJsDocType}`;
+      }).join(', ');
+
+      oldTypeString = `function(${params}): ${returnTypeJsDoc}`;
+    }
+
+    return `/** @typedef {${oldTypeString}} ${newTypeName} */`;
   }
 
   // Entfernt: generateStructInitialization(node)
@@ -170,6 +238,25 @@ export default class CodeGenerator {
     return `${this.indent()}for (${initializer}; ${condition}; ${increment}) {\n${bodyCode}\n${this.indent()}}`;
   }
 
+  generateForEachStatement(node) {
+    // node.left ist die VariableDeclaration für die Schleifenvariable
+    const keyword = node.left.isConst ? 'const' : 'let';
+    const variableName = node.left.id.name;
+    const iterable = this.generate(node.right);
+
+    let bodyCode = "";
+    if (node.body && node.body.body) { // Annahme: body ist ein BlockStatement
+        this.indentationLevel++;
+        bodyCode = node.body.body.map(stmt => this.generate(stmt)).join('\n');
+        this.indentationLevel--;
+    }
+    // Füge einen Zeilenumbruch hinzu, wenn der Body Inhalt hat und nicht leer ist
+    const finalBodyCode = bodyCode.trim() === "" ? "" : `\n${bodyCode}\n${this.indent()}`;
+
+
+    return `${this.indent()}for (${keyword} ${variableName} of ${iterable}) {${finalBodyCode}}`;
+  }
+
   generateExpressionStatement(node) {
     return `${this.indent()}${this.generate(node.expression)};`;
   }
@@ -186,6 +273,14 @@ export default class CodeGenerator {
     return `${left} ${operator} ${right}`;
   }
 
+  // NEU für LogicalExpression
+  generateLogicalExpression(node) {
+    const left = this.generate(node.left);
+    const right = this.generate(node.right);
+    // Die Operatoren && und || sind in JS und C-ähnlichen Sprachen gleich
+    return `${left} ${node.operator} ${right}`;
+  }
+
   generateUnaryExpression(node) {
     const argument = this.generate(node.argument);
     if (node.prefix) {
@@ -198,10 +293,13 @@ export default class CodeGenerator {
   generateMemberExpression(node) {
     const object = this.generate(node.object);
     const property = this.generate(node.property);
+    const operator = node.optional ? '?.' : '.'; // NEU: Optional Chaining Operator
+
     if (node.computed) {
-      return `${object}[${property}]`; // Klammernotation für computed: true
+      // Optional Chaining für berechnete Eigenschaften ist ?.[]
+      return `${object}${node.optional ? '?.': ''}[${property}]`;
     } else {
-      return `${object}.${property}`; // Punktnotation für computed: false
+      return `${object}${operator}${property}`; // Punktnotation oder Optional Chaining Punktnotation
     }
   }
 
@@ -236,8 +334,12 @@ export default class CodeGenerator {
       bodyContent = node.body.body.map(stmt => this.generate(stmt)).join('\n');
       this.indentationLevel--;
     }
-    // Lambdas in JS sind oft kürzer, aber wir halten uns an die Blockstruktur des AST
-    return `(${params}) => {\n${bodyContent}\n${this.indent()}}`;
+    
+    if (node.hasAmpersandCapture) { // NEU: Prüfen auf Ampersand-Capture
+      return `function(${params}) {\n${bodyContent}\n${this.indent()}}`;
+    } else {
+      return `(${params}) => {\n${bodyContent}\n${this.indent()}}`;
+    }
   }
 
   // NEU für ObjectLiteral
