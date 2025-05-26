@@ -1,6 +1,6 @@
 import { parseCode } from './chevro-parser.js';
 import { astBuilder } from './ast-builder.js';
-import CodeGenerator from './code-generator.js';
+import CodeGenerator from './code-generator.small.js';
 
 document.addEventListener('DOMContentLoaded', () => {
   const scripts = document.querySelectorAll('script[type="text/mini-c"]');
@@ -18,7 +18,7 @@ document.addEventListener('DOMContentLoaded', () => {
       if (lexErrors.length === 0 && parseErrors.length === 0) {
         const ast = astBuilder.visit(cst);
         const generator = new CodeGenerator();
-        const generatedCode = ast.body.map(node => generator.generate(node)).join('\n\n');
+        const generatedCode = ast.body.map(node => generator.generate(node)).join('');
         const scriptElement = document.createElement('script');
         scriptElement.type = 'text/javascript';
         scriptElement.textContent = generatedCode;
