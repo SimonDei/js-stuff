@@ -710,7 +710,50 @@ class AstBuilder extends BaseCstVisitor {
 
   primaryExpression(ctx) {
     if (ctx.Number) return { type: "Literal", value: parseFloat(ctx.Number[0].image), raw: ctx.Number[0].image };
-    if (ctx.StringLiteral) return { type: "Literal", value: JSON.parse(ctx.StringLiteral[0].image), raw: ctx.StringLiteral[0].image }; // JSON.parse entfernt Anführungszeichen und escaped Chars
+    if (ctx.StringLiteral) {
+      const rawImage = ctx.StringLiteral[0].image;
+      // Entferne die äußeren Anführungszeichen (entweder ' oder ")
+      const stringValue = rawImage.substring(1, rawImage.length - 1);
+      
+      // Bereite den String-Inhalt für JSON.parse vor:
+      // 1. Ersetze Backslashes durch doppelte Backslashes.
+      // 2. Ersetze doppelte Anführungszeichen durch escapete doppelte Anführungszeichen.
+      // 3. Konvertiere literale Steuerzeichen (wie Zeilenumbruch, Tab) in ihre Escape-Sequenzen.
+      const jsonParsableString = stringValue
+        .replace(/\\/g, '\\\\')  // \ -> \\
+        .replace(/"/g, '\\"')    // " -> \"
+        .replace(/\n/g, '\\n')   // Literal LF -> \n Sequenz
+        .replace(/\r/g, '\\r')   // Literal CR -> \r Sequenz
+        .replace(/\t/g, '\\t')   // Literal Tab -> \t Sequenz
+        .replace(/\f/g, '\\f')   // Literal FormFeed -> \f Sequenz
+        // Einfache Anführungszeichen (') müssen für JSON.parse nicht escaped werden, wenn der äußere String mit (") umschlossen ist.
+
+      let unescapedValue;
+      try {
+        // Umschließe den vorbereiteten String mit doppelten Anführungszeichen, um einen gültigen JSON-String zu bilden, und parse ihn.
+        unescapedValue = JSON.parse(`"${jsonParsableString}"`);
+      } catch (e) {
+        // Dieser Fall sollte idealerweise nicht eintreten, wenn jsonParsableString korrekt formatiert wurde.
+        // Ein Fehler hier deutet auf ein Problem in der obigen Escaping-Logik oder einen sehr ungewöhnlichen String hin.
+        console.error(
+          "Fehler beim Parsen des String-Literals nach der Vorbereitung für JSON.parse. Dies sollte nicht passieren.",
+          { raw: rawImage, prepared: jsonParsableString, error: e }
+        );
+        // Fallback auf eine einfachere (weniger umfassende) Unescaping-Methode.
+        // Diese behandelt die häufigsten Escapes, aber nicht alle, die JSON.parse könnte.
+        // Literale Zeilenumbrüche in stringValue bleiben hier als literale Zeilenumbrüche erhalten.
+        unescapedValue = stringValue
+          .replace(/\\n/g, '\n')
+          .replace(/\\r/g, '\r')
+          .replace(/\\t/g, '\t')
+          .replace(/\\f/g, '\f')
+          .replace(/\\'/g, "'")
+          .replace(/\\"/g, '"')
+          .replace(/\\\\/g, '\\');
+      }
+
+      return { type: "Literal", value: unescapedValue, raw: rawImage };
+    }
     if (ctx.Null) return { type: "Literal", value: null, raw: "null" }; // AST-Knoten für NullLiteral
     if (ctx.Identifier) return { type: "Identifier", name: ctx.Identifier[0].image };
     if (ctx.lambdaExpression) return this.visit(ctx.lambdaExpression[0]); // Lambda-Ausdruck besuchen
