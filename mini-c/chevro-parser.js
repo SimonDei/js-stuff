@@ -32,6 +32,7 @@ const Int = createToken({ name: "Int", pattern: /int/, longer_alt: Identifier })
 const Void = createToken({ name: "Void", pattern: /void/, longer_alt: Identifier });
 const Return = createToken({ name: "Return", pattern: /return/, longer_alt: Identifier });
 const Float = createToken({ name: "Float", pattern: /float/, longer_alt: Identifier });
+const Bool = createToken({ name: "Bool", pattern: /bool/, longer_alt: Identifier }); // NEUES TOKEN für bool
 const String = createToken({ name: "String", pattern: /string/, longer_alt: Identifier });
 const Auto = createToken({ name: "Auto", pattern: /auto/, longer_alt: Identifier });
 const Null = createToken({ name: "Null", pattern: /null/, longer_alt: Identifier });
@@ -68,6 +69,7 @@ const NotEqual = createToken({ name: "NotEqual", pattern: /!=/ });
 // NEUE Logische Operatoren
 const LogicalAnd = createToken({ name: "LogicalAnd", pattern: /&&/ });
 const LogicalOr = createToken({ name: "LogicalOr", pattern: /\|\|/ });
+const NullishCoalescing = createToken({ name: "NullishCoalescing", pattern: /\?\?/ }); // NEUES TOKEN
 
 // NEUES TOKEN für logisches NICHT
 const Not = createToken({ name: "Not", pattern: /!/ });
@@ -78,6 +80,7 @@ const Decrement = createToken({ name: "Decrement", pattern: /--/ });
 
 // Member-Zugriff
 const Dot = createToken({ name: "Dot", pattern: /\./ });
+const OptionalChaining = createToken({ name: "OptionalChaining", pattern: /\?\./ }); // NEUES TOKEN
 
 // Delimiter und Operatoren
 const LParen = createToken({ name: "LParen", pattern: /\(/ });
@@ -88,7 +91,12 @@ const LBracket = createToken({ name: "LBracket", pattern: /\[/ });
 const RBracket = createToken({ name: "RBracket", pattern: /\]/ });
 const Semicolon = createToken({ name: "Semicolon", pattern: /;/ });
 const Comma = createToken({ name: "Comma", pattern: /,/ });
+const Colon = createToken({ name: "Colon", pattern: /:/ });
 const Equals = createToken({ name: "Equals", pattern: /=/ });
+const Ampersand = createToken({ name: "Ampersand", pattern: /&/ });
+
+// NEUES TOKEN für QuestionMark (für Nullable Types und potenziell Ternary Operator)
+const QuestionMark = createToken({ name: "QuestionMark", pattern: /\?/ });
 
 // NEUES TOKEN für Arrow-Funktionen
 const Arrow = createToken({ name: "Arrow", pattern: /=>/ });
@@ -107,35 +115,35 @@ const allTokens = [
   WhiteSpace,
   EOL,
   // Keywords zuerst
-  Typedef, 
+  Typedef,
   Null,
-  Int, Void, Return, Float, String, Auto,
+  Int, Void, Return, Float, Bool, String, Auto,
   Const,
   If, Else, For,
   // Logische Operatoren
-  LogicalAnd, LogicalOr,
+  LogicalAnd, LogicalOr, NullishCoalescing, // ??
   // Vergleichsoperatoren (WICHTIG: >= und <= vor > und <, != vor !)
-  GreaterEqual, LessEqual, EqualEqual, NotEqual, // NotEqual VOR Not
-  Not, // Not NACH NotEqual
+  GreaterEqual, LessEqual, EqualEqual, NotEqual,
+  Not,
   GreaterThan, LessThan,
   // Assignment-Operatoren (WICHTIG: += und -= vor + und -)
-  // ThinArrow VOR Minus, da '-' ein Präfix von '->' ist
-  ThinArrow, 
-  PlusEquals, MinusEquals, // PlusEquals und MinusEquals können hier bleiben oder nach ThinArrow/Minus
+  ThinArrow,
+  PlusEquals, MinusEquals,
   // Unary-Operatoren (WICHTIG: vor arithmetischen Operatoren wegen ++ und --)
   Increment, Decrement,
   // Arithmetik-Operatoren
-  Plus, Minus, Multiply, Divide, // Minus NACH ThinArrow
+  Plus, Minus, Multiply, Divide,
   // Member-Zugriff
+  OptionalChaining, // ?. Muss VOR QuestionMark kommen
   Dot,
   // Arrow-Tokens
-  Arrow, 
+  Arrow,
   // ThinArrow wurde nach oben verschoben
   // Dann andere Tokens
   Number, StringLiteral, Identifier,
   // Delimiter
   LParen, RParen, LBrace, RBrace, LBracket, RBracket,
-  Semicolon, Comma, Equals
+  Semicolon, Comma, Colon, QuestionMark, Equals, Ampersand // QuestionMark HINZUGEFÜGT, Equals, Ampersand
 ];
 
 // === LEXER ===
@@ -149,7 +157,7 @@ class CLanguageParser extends CstParser {
     });
 
     const isPrimitiveType = (tokenType) =>
-      tokenType === Int || tokenType === Float || tokenType === String || tokenType === Auto;
+      tokenType === Int || tokenType === Float || tokenType === String || tokenType === Bool || tokenType === Auto;
     // const isCustomType = (tokenType) => tokenType === Identifier; // Nicht mehr direkt benötigt für GATEs
     const isVoidType = (tokenType) => tokenType === Void;
 
@@ -158,22 +166,34 @@ class CLanguageParser extends CstParser {
         { ALT: () => this.CONSUME(Int) },
         { ALT: () => this.CONSUME(Float) },
         { ALT: () => this.CONSUME(String) },
+        { ALT: () => this.CONSUME(Bool) }, // NEU: Bool-Typ
         { ALT: () => this.CONSUME(Void) },
         { ALT: () => this.CONSUME(Auto) },
         { ALT: () => this.CONSUME(Identifier) } // Für benutzerdefinierte Typen
       ]);
-      // Optionale Array-Klammern direkt nach dem Typ
-      this.OPTION(() => {
+
+      // Optionales '?' für den Basistyp (z.B. int?)
+      this.OPTION({ LABEL: "isBaseTypeNullable", DEF: () => this.CONSUME(QuestionMark) });
+
+      // Optionale Array-Deklaration
+      this.OPTION1({ LABEL: "isArrayDeclaration", DEF: () => { // Suffix 1 für Eindeutigkeit
         this.CONSUME(LBracket);
         this.CONSUME(RBracket);
-      });
+
+        // Optionales '?' für den Array-Typ selbst (z.B. int[]?)
+        // Dieses QuestionMark muss einen Suffix haben, da QuestionMark oben schon verwendet wurde.
+        this.OPTION2({ LABEL: "isArrayItselfNullable", DEF: () => this.CONSUME2(QuestionMark) }); // Suffix 2
+      }});
     });
 
     // NEUE REGEL für Lambda-Ausdrücke (C++-Stil)
     this.lambdaExpression = this.RULE("lambdaExpression", () => {
       this.CONSUME(LBracket); // Capture-Klausel Anfang
       // Hier könnte optional eine Capture-Liste geparst werden, z.B. [=, &var]
-      // Fürs Erste nehmen wir eine leere Capture-Klausel an.
+      // Fürs Erste nehmen wir eine leere Capture-Klausel oder eine mit '&' an.
+      this.OPTION(() => { // Option für das Ampersand-Zeichen
+        this.CONSUME(Ampersand, { LABEL: "captureAmpersand" });
+      });
       this.CONSUME(RBracket); // Capture-Klausel Ende
 
       this.CONSUME(LParen);   // Parameterliste Anfang
@@ -197,11 +217,21 @@ class CLanguageParser extends CstParser {
         { ALT: () => this.CONSUME(StringLiteral) },
         { ALT: () => this.CONSUME(Null) },
         { // Lambda-Ausdruck (C++-Stil) - VOR arrayLiteral
-          GATE: () => this.LA(1).tokenType === LBracket && this.LA(2).tokenType === RBracket && this.LA(3).tokenType === LParen,
+          GATE: () => {
+            if (this.LA(1).tokenType !== LBracket) return false;
+            // Prüfe auf [&] oder [] gefolgt von (
+            if (this.LA(2).tokenType === Ampersand && this.LA(3).tokenType === RBracket && this.LA(4).tokenType === LParen) {
+              return true; // Fall: [&]()
+            }
+            if (this.LA(2).tokenType === RBracket && this.LA(3).tokenType === LParen) {
+              return true; // Fall: []()
+            }
+            return false;
+          },
           ALT: () => this.SUBRULE(this.lambdaExpression)
         },
         { // Array-Literal
-          GATE: () => this.LA(1).tokenType === LBracket,
+          GATE: () => this.LA(1).tokenType === LBracket, // Einfacheres Gate, da Lambda spezifischer ist
           ALT: () => this.SUBRULE(this.arrayLiteral)
         },
         { // Objekt-Literal NEU
@@ -233,11 +263,18 @@ class CLanguageParser extends CstParser {
       // Dann beliebig viele Postfix-Operationen (Member-Zugriff, Funktionsaufruf, Inkrement/Dekrement)
       this.MANY(() => {
         this.OR([
+          { // Optional Chaining: expression?.identifier
+            GATE: () => this.LA(1).tokenType === OptionalChaining,
+            ALT: () => {
+              this.CONSUME(OptionalChaining);
+              this.CONSUME(Identifier, { LABEL: "memberIdentifier" });
+            }
+          },
           { // Member-Zugriff: expression.identifier
             GATE: () => this.LA(1).tokenType === Dot,
             ALT: () => {
               this.CONSUME(Dot);
-              this.CONSUME(Identifier, { LABEL: "memberIdentifier" });
+              this.CONSUME2(Identifier, { LABEL: "memberIdentifier" }); // Suffix 2, da Identifier oben schon verwendet wird
             }
           },
           { // Funktionsaufruf: expression(argumentList?)
@@ -370,9 +407,18 @@ class CLanguageParser extends CstParser {
       });
     });
 
-    // MODIFIZIERT: assignmentExpression - konsumiert jetzt logicalOrExpression
+    // NEU: nullishCoalescingExpression (hat eine niedrigere Präzedenz als ||)
+    this.nullishCoalescingExpression = this.RULE("nullishCoalescingExpression", () => {
+      this.SUBRULE(this.logicalOrExpression, { LABEL: "lhs" }); // Beginnt mit höherer Präzedenz
+      this.MANY(() => {
+        this.CONSUME(NullishCoalescing);
+        this.SUBRULE2(this.logicalOrExpression, { LABEL: "rhs" }); // Verarbeitet den rechten Teil mit der gleichen oder höheren Präzedenz
+      });
+    });
+
+    // MODIFIZIERT: assignmentExpression - konsumiert jetzt nullishCoalescingExpression
     this.assignmentExpression = this.RULE("assignmentExpression", () => {
-      this.SUBRULE(this.logicalOrExpression, { LABEL: "lhs" }); // Geändert von equalityExpression
+      this.SUBRULE(this.nullishCoalescingExpression, { LABEL: "lhs" }); // Geändert von logicalOrExpression
       this.OPTION(() => {
         this.OR([
           { ALT: () => this.CONSUME(Equals) },
@@ -412,10 +458,14 @@ class CLanguageParser extends CstParser {
 
     this.typeDefinition = this.RULE("typeDefinition", () => {
       this.CONSUME(Typedef);
+      // NEU: Optionales Const vor dem Typ
+      this.OPTION(() => {
+        this.CONSUME(Const, { LABEL: "isOriginalTypeConst" });
+      });
       this.SUBRULE(this.typeSpecifier, { LABEL: "originalType" }); // z.B. das erste 'int'
 
       this.OR([
-        { // Einfacher Typedef: typedef oldType newType;
+        { // Einfacher Typedef: typedef [const] oldType newType;
           GATE: () => this.LA(1).tokenType === Identifier && this.LA(2).tokenType === Semicolon,
           ALT: () => {
             this.CONSUME(Identifier, { LABEL: "newTypeName" });
@@ -427,12 +477,12 @@ class CLanguageParser extends CstParser {
             this.CONSUME(LParen);
             this.CONSUME(Multiply); // Der Stern für den Zeiger
             // Optionaler Name innerhalb der Funktionszeiger-Deklaration des Typedefs (oft weggelassen)
-            this.OPTION(() => {
+            this.OPTION1(() => {
               this.CONSUME1(Identifier, { LABEL: "functionPointerInternalName" });
             });
             this.CONSUME(RParen);
             this.CONSUME2(LParen); // Parameterliste des Funktionszeigers
-            this.OPTION1(() => {
+            this.OPTION2(() => {
               this.SUBRULE(this.parameterList, { LABEL: "functionPointerParameterList" });
             });
             this.CONSUME3(RParen);
@@ -458,25 +508,34 @@ class CLanguageParser extends CstParser {
 
               const isValidStartType = isPrimitiveType(firstToken) || firstToken === Void || firstToken === Identifier;
               if (!isValidStartType) return false;
-              lookaheadIndex++;
+              lookaheadIndex++; // Nach dem Basistyp (z.B. int)
 
-              if (this.LA(lookaheadIndex).tokenType === LBracket) {
+              // NEU: Prüfen auf '?' nach dem Basistyp
+              if (this.LA(lookaheadIndex).tokenType === QuestionMark) {
+                lookaheadIndex++;
+              }
+
+              if (this.LA(lookaheadIndex).tokenType === LBracket) { // Für Arrays int[] main...
                 if (this.LA(lookaheadIndex + 1).tokenType === RBracket) {
-                  lookaheadIndex += 2;
+                  lookaheadIndex += 2; // Nach []
+                  // NEU: Prüfen auf '?' nach den Array-Klammern
+                  if (this.LA(lookaheadIndex).tokenType === QuestionMark) {
+                    lookaheadIndex++;
+                  }
                 } else {
-                  return false;
+                  return false; // Ungültige Array-Syntax
                 }
               }
 
               if (this.LA(lookaheadIndex).tokenType !== Identifier) return false; // Funktionsname
-              lookaheadIndex++;
+              lookaheadIndex++; // Nach dem Funktionsnamen
 
               return this.LA(lookaheadIndex).tokenType === LParen; // Erwartet ( für Parameter
             },
             ALT: () => this.SUBRULE(this.functionDefinition)
           },
           {
-            // GATE für variableDeclaration
+            // GATE für variableDeclaration auf Top-Level
             GATE: () => {
               let laIdx = 1;
               if (this.LA(laIdx).tokenType === Const) {
@@ -487,25 +546,31 @@ class CLanguageParser extends CstParser {
               if (!(isPrimitiveType(typeStartToken) || typeStartToken === Void || typeStartToken === Identifier)) {
                 return false;
               }
-              laIdx++; // Nach dem ersten Teil des Typs (z.B. Int, Identifier)
+              laIdx++; // Nach dem Basistyp
+
+              // NEU: Prüfen auf '?' nach dem Basistyp
+              if (this.LA(laIdx).tokenType === QuestionMark) {
+                laIdx++;
+              }
 
               // Berücksichtige optionale Array-Klammern des Typs (z.B. int[])
               if (this.LA(laIdx).tokenType === LBracket && this.LA(laIdx + 1).tokenType === RBracket) {
-                laIdx += 2;
+                laIdx += 2; // Nach []
+                // NEU: Prüfen auf '?' nach den Array-Klammern
+                if (this.LA(laIdx).tokenType === QuestionMark) {
+                  laIdx++;
+                }
               }
 
               // Erwarte den Variablennamen (Identifier)
               if (this.LA(laIdx).tokenType !== Identifier) return false;
               laIdx++; // Nach dem Variablennamen
 
-              // Was folgt? Entweder Initialisierung `=`, Semikolon `;`
-              // oder C-Style Array-Klammern `[]` nach dem Namen.
               const nextToken = this.LA(laIdx).tokenType;
               if (nextToken === Equals || nextToken === Semicolon) {
                 return true;
               }
               // Für C-Style `int arr[] = ...` oder `int arr[];`
-              // Dies ist relevant, wenn die variableDeclaration Regel `name[]` unterstützt.
               if (nextToken === LBracket && this.LA(laIdx + 1).tokenType === RBracket) {
                 const tokenAfterBrackets = this.LA(laIdx + 2).tokenType;
                 if (tokenAfterBrackets === Equals || tokenAfterBrackets === Semicolon) {
@@ -635,7 +700,7 @@ class CLanguageParser extends CstParser {
     this.statement = this.RULE("statement", () => {
       this.OR([
         {
-          GATE: () => { // GATE für variableDeclaration
+          GATE: () => { // GATE für variableDeclaration in statement
             let laIdx = 1;
             if (this.LA(laIdx).tokenType === Const) {
               laIdx++;
@@ -645,18 +710,29 @@ class CLanguageParser extends CstParser {
 
             if (!isPotentiallyType) return false;
 
-            // Nächstes Token nach dem Typ
-            let nextTokenIdx = laIdx + 1;
-            let nextToken = this.LA(nextTokenIdx).tokenType;
+            let nextTokenIdx = laIdx + 1; // Index des Tokens nach dem Basistyp
 
-            // Prüfen auf 'Type Identifier'
-            if (nextToken === Identifier) return true;
-
-            // Prüfen auf 'Type [] Identifier'
-            if (nextToken === LBracket && this.LA(nextTokenIdx + 1).tokenType === RBracket && this.LA(nextTokenIdx + 2).tokenType === Identifier) {
-              return true;
+            // NEU: Prüfen auf '?' direkt nach dem Basistyp
+            if (this.LA(nextTokenIdx).tokenType === QuestionMark) {
+                nextTokenIdx++; // Vorrücken, wenn '?' vorhanden ist
             }
-            return false;
+
+            // Prüfen auf Array-Syntax ODER Identifier
+            if (this.LA(nextTokenIdx).tokenType === LBracket) { // Array-Fall: int[] oder int?[]
+                if (this.LA(nextTokenIdx + 1).tokenType === RBracket) {
+                    nextTokenIdx += 2; // Nach '[]'
+                    // NEU: Prüfen auf '?' nach den Array-Klammern
+                    if (this.LA(nextTokenIdx).tokenType === QuestionMark) {
+                        nextTokenIdx++; // Vorrücken, wenn '?' vorhanden ist
+                    }
+                    // Nach Type[] oder Type[]? oder Type?[] oder Type?[]? muss ein Identifier folgen
+                    return this.LA(nextTokenIdx).tokenType === Identifier;
+                }
+                return false; // Ungültige Array-Syntax wie int[;
+            } else if (this.LA(nextTokenIdx).tokenType === Identifier) { // Nicht-Array-Fall: int optionalNumber oder int? optionalNumber
+                return true;
+            }
+            return false; // Weder Array noch direkter Identifier nach dem Typ (und optionalem '?')
           },
           ALT: () => this.SUBRULE(this.variableDeclaration)
         },
@@ -747,61 +823,94 @@ class CLanguageParser extends CstParser {
             ALT: () => this.SUBRULE(this.ifStatement, { LABEL: "elseIfStatement" })
           },
           {
-            ALT: () => this.SUBRULE2(this.block, { LABEL: "elseBlock" })
+            ALT: () => this.SUBRULE2(this.block, { LABEL: "elseBlock" }) // Suffix für SUBRULE(block) hier, falls nötig
           }
         ]);
       });
     });
 
     this.forStatement = this.RULE("forStatement", () => {
-      this.CONSUME(For);
-      this.CONSUME(LParen);
+      this.CONSUME(For);      // Einmaliger Aufruf, kein Suffix nötig
+      this.CONSUME(LParen);   // Einmaliger Aufruf, kein Suffix nötig
 
-      this.OR([
-        {
-          GATE: () => { // GATE für Deklarationsteil im for
-            let laIdx = 1;
-            if (this.LA(laIdx).tokenType === Const) {
-              laIdx++;
+      this.OR1([ // OR #1: Unterscheidung Foreach vs. C-Style
+        { // Foreach-Schleife
+          GATE: () => {
+            let lookaheadIndex = 1;
+            if (this.LA(lookaheadIndex).tokenType === Const) {
+              lookaheadIndex++;
             }
-            const firstToken = this.LA(laIdx).tokenType;
-            const isPotentiallyType = firstToken === Int || firstToken === Float || firstToken === String || firstToken === Void || firstToken === Auto || firstToken === Identifier;
-
-            if (!isPotentiallyType) return false;
-
-            let nextTokenIdx = laIdx + 1;
-            let nextToken = this.LA(nextTokenIdx).tokenType;
-
-            // Prüfen auf 'Type Identifier'
-            if (nextToken === Identifier) return true;
-
-            // Prüfen auf 'Type [] Identifier'
-            if (nextToken === LBracket && this.LA(nextTokenIdx + 1).tokenType === RBracket && this.LA(nextTokenIdx + 2).tokenType === Identifier) {
-              return true;
+            let currentIdx = lookaheadIndex; // Start nach potentiellem Const
+            // Skip Type (angenommen max 2 Tokens für Type + optional [])
+            // Dies ist eine sehr vereinfachte Vorausschau für den Typ
+            const typeStartTokenLA = this.LA(currentIdx).tokenType;
+             if (!(typeStartTokenLA === Int || typeStartTokenLA === Float || typeStartTokenLA === String || typeStartTokenLA === Void || typeStartTokenLA === Auto || typeStartTokenLA === Identifier)) {
+                 return false; // Kein gültiger Typanfang
+             }
+            currentIdx++; 
+            if (this.LA(currentIdx).tokenType === LBracket && this.LA(currentIdx + 1).tokenType === RBracket) {
+                currentIdx += 2;
             }
-            return false;
+            return this.LA(currentIdx).tokenType === Identifier && this.LA(currentIdx + 1).tokenType === Colon;
           },
           ALT: () => {
-            this.OPTION(() => this.CONSUME(Const));
-            this.SUBRULE(this.typeSpecifier);
-            this.CONSUME(Identifier);
-            this.OPTION1(() => {
-              this.CONSUME(Equals);
-              this.SUBRULE(this.expression, { LABEL: "initExpression" }); // LABEL HINZUGEFÜGT
-            });
+            this.OPTION1({ LABEL: "isConst", GATE: () => this.LA(1).tokenType === Const, DEF: () => this.CONSUME1(Const) }); // OPTION #1, CONSUME #1 of Const
+            this.SUBRULE1(this.typeSpecifier, { LABEL: "loopVariableType" }); // SUBRULE #1 of typeSpecifier
+            this.CONSUME1(Identifier, { LABEL: "loopVariable" }); // CONSUME #1 of Identifier
+            this.CONSUME(Colon); // Einmaliger Aufruf von Colon in diesem Pfad
+            this.SUBRULE1(this.expression, { LABEL: "iterableExpression" }); // SUBRULE #1 of expression
           }
         },
-        {
-          ALT: () => this.OPTION2(() => this.SUBRULE2(this.expression, { LABEL: "initExpression" })) // LABEL HINZUGEFÜGT
+        { // C-Style for-Schleife
+          ALT: () => {
+            this.OR2([ // OR #2: Initializer-Alternativen (Deklaration oder Ausdruck)
+              { // Initializer: Deklarationsteil
+                GATE: () => { 
+                  let laIdx = 1;
+                  if (this.LA(laIdx).tokenType === Const) {
+                    laIdx++;
+                  }
+                  const firstToken = this.LA(laIdx).tokenType;
+                  const isPotentiallyType = firstToken === Int || firstToken === Float || firstToken === String || firstToken === Void || firstToken === Auto || firstToken === Identifier;
+                  if (!isPotentiallyType) return false;
+                  let nextTokenIdx = laIdx + 1;
+                  if (this.LA(nextTokenIdx).tokenType === LBracket && this.LA(nextTokenIdx + 1).tokenType === RBracket) {
+                    nextTokenIdx += 2; 
+                  }
+                  return this.LA(nextTokenIdx).tokenType === Identifier;
+                },
+                ALT: () => {
+                  this.OPTION2({GATE: () => this.LA(1).tokenType === Const, DEF: () => this.CONSUME2(Const) }); // OPTION #2, CONSUME #2 of Const
+                  this.SUBRULE2(this.typeSpecifier, {LABEL: "initVarType"}); // SUBRULE #2 of typeSpecifier
+                  this.CONSUME2(Identifier, {LABEL: "initVarName"}); // CONSUME #2 of Identifier
+                  this.OPTION3(() => { // OPTION #3 für die Initialisierungszuweisung
+                    this.CONSUME(Equals); // Einmaliger Aufruf von Equals in diesem Pfad
+                    this.SUBRULE2(this.expression, { LABEL: "initExpression" }); // SUBRULE #2 of expression
+                  });
+                }
+              },
+              { // Initializer: Nur Ausdruck
+                ALT: () => {
+                  this.OPTION4(() => { // OPTION #4 für optionalen Initialisierungsausdruck
+                     this.SUBRULE3(this.expression, { LABEL: "initExpression" }); // SUBRULE #3 of expression
+                  });
+                }
+              }
+            ]);
+            this.CONSUME1(Semicolon); // CONSUME #1 of Semicolon
+            this.OPTION5(() => { // OPTION #5 für Testausdruck
+              this.SUBRULE4(this.expression, { LABEL: "testExpression" }); // SUBRULE #4 of expression
+            });
+            this.CONSUME2(Semicolon); // CONSUME #2 of Semicolon
+            this.OPTION6(() => { // OPTION #6 für Update-Ausdruck
+              this.SUBRULE5(this.expression, { LABEL: "updateExpression" }); // SUBRULE #5 of expression
+            });
+          }
         }
       ]);
 
-      this.CONSUME(Semicolon);
-      this.OPTION3(() => this.SUBRULE3(this.expression, { LABEL: "testExpression" })); // LABEL HINZUGEFÜGT
-      this.CONSUME2(Semicolon);
-      this.OPTION4(() => this.SUBRULE4(this.expression, { LABEL: "updateExpression" })); // LABEL HINZUGEFÜGT
-      this.CONSUME(RParen);
-      this.SUBRULE(this.block);
+      this.CONSUME(RParen);   // Einmaliger Aufruf, kein Suffix nötig
+      this.SUBRULE(this.block); // Einmaliger Aufruf von SUBRULE(block) in forStatement
     });
 
     this.performSelfAnalysis();
