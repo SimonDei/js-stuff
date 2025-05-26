@@ -13,60 +13,114 @@ class AstBuilder extends BaseCstVisitor {
     this.validateVisitor();
   }
 
+   // Hilfsmethode, um den Start-Offset eines CST-Knotens zu ermitteln
+  _getStartOffsetOfCstNode(cstNode) {
+    let minOffset = Infinity;
+    let foundToken = false;
+
+    function findMinOffsetRecursive(children) {
+      for (const key in children) {
+        const childArray = children[key];
+        if (childArray) {
+          for (const item of childArray) {
+            // Prüfen, ob es sich um ein Token-Objekt handelt (hat typischerweise startOffset)
+            if (item && typeof item.startOffset === 'number') {
+              minOffset = Math.min(minOffset, item.startOffset);
+              foundToken = true;
+            } else if (item && item.name && item.children) { // Es ist ein verschachtelter CST-Knoten (CST einer Sub-Regel)
+              findMinOffsetRecursive(item.children);
+            }
+          }
+        }
+      }
+    }
+
+    if (cstNode && cstNode.children) {
+      findMinOffsetRecursive(cstNode.children);
+    }
+    // Wenn keine Tokens gefunden wurden (z.B. leere Regel), aber der Knoten selbst von einer Regel stammt,
+    // die Tokens konsumiert hat, die nicht direkt im `children` des aktuellen `cstNode` sind,
+    // könnte dieser Ansatz verfeinert werden müssen. Für die meisten Fälle sollte es jedoch funktionieren.
+    // Im schlimmsten Fall, wenn ein Knoten keine Tokens hat, gibt er Infinity zurück, was ihn ans Ende sortiert (oder je nach Logik).
+    return foundToken ? minOffset : Infinity;
+  }
+
   // --- Visitor-Methoden für deine Grammatikregeln ---
 
   program(ctx) {
-    const definitions = [];
-    if (ctx.typeDefinition) {
-      ctx.typeDefinition.forEach(tdCtx => {
-        definitions.push(this.visit(tdCtx));
-      });
+    const allCstItemsWithOffset = [];
+
+    // Liste der Namen der Top-Level-Regeln, wie sie im Parser-Kontext (ctx) erscheinen
+    const topLevelRuleArrays = ["typeDefinition", "functionDefinition", "variableDeclaration", "expressionStatement"];
+
+    for (const ruleArrayName of topLevelRuleArrays) {
+      if (ctx[ruleArrayName]) {
+        ctx[ruleArrayName].forEach(cstNode => {
+          // cstNode ist hier der CST für eine spezifische Regelinstanz
+          // (z.B. eine functionDefinition, eine variableDeclaration etc.)
+          allCstItemsWithOffset.push({
+            cst: cstNode, // Der eigentliche CST-Knoten, der besucht werden soll
+            startOffset: this._getStartOffsetOfCstNode(cstNode)
+          });
+        });
+      }
     }
-    if (ctx.variableDeclaration) {
-      ctx.variableDeclaration.forEach(vdCtx => {
-        definitions.push(this.visit(vdCtx));
-      });
-    }
-    if (ctx.expressionStatement) {
-      ctx.expressionStatement.forEach(fdCtx => {
-        definitions.push(this.visit(fdCtx));
-      });
-    }
-    if (ctx.functionDefinition) {
-      ctx.functionDefinition.forEach(fdCtx => {
-        definitions.push(this.visit(fdCtx));
-      });
-    }
+
+    // Sortiere die gesammelten CST-Knoten nach ihrem Start-Offset
+    allCstItemsWithOffset.sort((a, b) => a.startOffset - b.startOffset);
+
+    const programBodyAst = [];
+    allCstItemsWithOffset.forEach(item => {
+      const astNode = this.visit(item.cst);
+      if (astNode) { // Füge den AST-Knoten nur hinzu, wenn er nicht null ist
+        programBodyAst.push(astNode);
+      }
+    });
+
     return {
       type: "Program",
-      body: definitions
+      body: programBodyAst
     };
   }
 
   typeDefinition(ctx) {
     const newType = ctx.newTypeName[0].image;
-    let oldType = null;
+    let oldTypeNode = null; // Wird der AST-Knoten für den alten Typ sein
 
-    const isFunctionPointer = !!ctx.functionPointerParameterList;
+    // Prüfen, ob der ursprüngliche Typ als const markiert wurde
+    const isOriginalTypeConst = !!(ctx.isOriginalTypeConst && ctx.isOriginalTypeConst.length > 0);
+
+    const isFunctionPointer = !!ctx.functionPointerParameterList; // Besser: Prüfen auf LParen nach originalType oder spezifische Struktur
 
     if (!isFunctionPointer) {
-      oldType = this.visit(ctx.originalType[0]);
+      oldTypeNode = this.visit(ctx.originalType[0]);
+      // Füge die const-Information zum TypeSpecifier-Knoten hinzu, falls vorhanden
+      if (oldTypeNode.type === "TypeSpecifier") {
+        oldTypeNode.isConst = isOriginalTypeConst; // Neue Eigenschaft
+      }
     } else {
-      oldType = {
+      const returnTypeAst = this.visit(ctx.originalType[0]);
+      if (returnTypeAst.type === "TypeSpecifier") {
+        returnTypeAst.isConst = isOriginalTypeConst; // Const-Info zum Rückgabetyp
+      }
+      oldTypeNode = {
         type: "FunctionPointerType",
-        returnType: this.visit(ctx.originalType[0]),
+        returnType: returnTypeAst,
         params: []
       };
-      ctx.functionPointerParameterList.forEach(paramCtx => {
-        oldType.params.push(this.visit(paramCtx));
-      });
+      if (ctx.functionPointerParameterList && ctx.functionPointerParameterList[0]) {
+        oldTypeNode.params = this.visit(ctx.functionPointerParameterList[0]);
+      }
+      // Ein FunctionPointerType selbst kann auch als const betrachtet werden,
+      // basierend auf dem `isOriginalTypeConst` vor dem gesamten Funktionszeiger-Typ.
+      oldTypeNode.isConst = isOriginalTypeConst; // Neue Eigenschaft
     }
 
     return {
       type: "TypeDefinition",
       newType,
-      oldType
-    }
+      oldType: oldTypeNode // oldType ist jetzt der AST-Knoten
+    };
   }
 
   functionDefinition(ctx) {
@@ -116,8 +170,10 @@ class AstBuilder extends BaseCstVisitor {
   typeSpecifier(ctx) {
     const specifier = {
       type: "TypeSpecifier",
-      isArray: false,
-      name: undefined
+      name: undefined,
+      isBaseTypeNullable: !!(ctx.isBaseTypeNullable && ctx.isBaseTypeNullable.length > 0), // NEU
+      isArray: !!(ctx.isArrayDeclaration && ctx.isArrayDeclaration.length > 0),
+      isArrayItselfNullable: !!(ctx.isArrayItselfNullable && ctx.isArrayItselfNullable.length > 0) // NEU
     };
 
     // Die Grammatikregel typeSpecifier enthält OPTION für LBracket/RBracket
@@ -128,7 +184,7 @@ class AstBuilder extends BaseCstVisitor {
     if (ctx.Int) specifier.name = "int";
     else if (ctx.Float) specifier.name = "float";
     else if (ctx.String) specifier.name = "string";
-    // else if (ctx.Bool) specifier.name = "bool"; // 'Bool' ist nicht in Ihrer bereitgestellten Grammatik
+    else if (ctx.Bool) specifier.name = "bool";
     else if (ctx.Void) specifier.name = "void";
     else if (ctx.Auto) specifier.name = "auto"; // Auto hinzugefügt
     else if (ctx.Identifier) {
@@ -329,6 +385,23 @@ class AstBuilder extends BaseCstVisitor {
     return left;
   }
 
+  nullishCoalescingExpression(ctx) {
+    let left = this.visit(ctx.lhs[0]); // lhs ist logicalOrExpression
+
+    if (ctx.NullishCoalescing && ctx.rhs && ctx.rhs.length > 0) {
+      for (let i = 0; i < ctx.rhs.length; i++) {
+        const right = this.visit(ctx.rhs[i]); // rhs ist logicalOrExpression
+        left = {
+          type: "LogicalExpression", // Bleibt LogicalExpression, nur der Operator ändert sich
+          operator: "??",
+          left: left,
+          right: right
+        };
+      }
+    }
+    return left;
+  }
+
   relationalExpression(ctx) {
     let left = this.visit(ctx.lhs[0]); // lhs ist additiveExpression
 
@@ -465,27 +538,124 @@ class AstBuilder extends BaseCstVisitor {
     // Sammle alle Postfix-Operationen mit ihren Start-Offsets, um die Reihenfolge zu wahren
     const operations = [];
     if (ctx.Dot) {
-      ctx.Dot.forEach((op, i) => operations.push({ type: 'Dot', token: op, relatedToken: ctx.memberIdentifier[i], order: op.startOffset }));
+      // Stellen Sie sicher, dass memberIdentifier für Dot existiert und die gleiche Länge hat
+      ctx.Dot.forEach((op, i) => {
+        if (ctx.memberIdentifier && ctx.memberIdentifier[i]) {
+          operations.push({ type: 'Dot', token: op, relatedToken: ctx.memberIdentifier[i], order: op.startOffset });
+        } else if (ctx.memberIdentifier && ctx.memberIdentifier.length > i && ctx.memberIdentifier[i].name === "memberIdentifier") {
+          // Fall für ctx.memberIdentifier als Array von Identifier-Tokens (wenn mehrere Dot-Operationen vorhanden sind)
+          operations.push({ type: 'Dot', token: op, relatedToken: ctx.memberIdentifier[i], order: op.startOffset });
+        }
+      });
+    }
+    // NEU: OptionalChaining behandeln
+    if (ctx.OptionalChaining) {
+      ctx.OptionalChaining.forEach((op, i) => {
+        // Finde das zugehörige memberIdentifier. Es könnte in einem separaten Array sein oder im selben, je nach Grammatik.
+        // Annahme: Wenn OptionalChaining existiert, gibt es auch ein zugehöriges memberIdentifier.
+        // Die Logik hier muss möglicherweise angepasst werden, je nachdem, wie Chevrotain die Labels bei mehreren Vorkommen handhabt.
+        // Wenn ctx.memberIdentifier alle Identifier sammelt (sowohl für Dot als auch für OptionalChaining),
+        // dann muss die Zuordnung sorgfältiger erfolgen, z.B. über die Reihenfolge oder spezifische Labels.
+        // Fürs Erste nehmen wir an, dass es ein separates Array oder eine korrekte Indexierung gibt.
+        // Wenn `memberIdentifier` für `Dot` und `OptionalChaining` dasselbe Label hat,
+        // muss man die Tokens sorgfältig zuordnen. Chevrotain erstellt Arrays für jedes Label.
+        // Wenn `Dot` und `OptionalChaining` auftreten, hat `memberIdentifier` möglicherweise Einträge von beiden.
+        // Wir müssen die Tokens basierend auf ihrer Position oder durch Iterieren über alle Operationen zuordnen.
+
+        // Einfachere Annahme: Wenn ctx.OptionalChaining[i] existiert, dann ctx.memberIdentifier[i] (oder eine andere Indexlogik)
+        // ist der zugehörige Identifier. Dies hängt davon ab, wie Chevrotain die Arrays füllt.
+        // Wenn `CONSUME(Identifier, { LABEL: "memberIdentifier" })` und `CONSUME2(Identifier, { LABEL: "memberIdentifier" })`
+        // in dasselbe `ctx.memberIdentifier`-Array schreiben, ist die Zuordnung komplex.
+        // Besser wäre es, wenn `CONSUME2` ein `ctx.memberIdentifier2` erzeugen würde oder ein anderes Label.
+        // Da wir `memberIdentifier` für beide verwenden, müssen wir die Tokens sorgfältig zuordnen.
+        // Die aktuelle Grammatik verwendet `CONSUME(Identifier, { LABEL: "memberIdentifier" })` für OptionalChaining
+        // und `CONSUME2(Identifier, { LABEL: "memberIdentifier" })` für Dot.
+        // Das bedeutet, `ctx.memberIdentifier` enthält die Identifier für OptionalChaining
+        // und `ctx.memberIdentifier2` (falls vorhanden und so von Chevrotain benannt) für Dot.
+        // Oder Chevrotain fasst sie unter `ctx.memberIdentifier` zusammen und man muss sie über die `tokenTypeIdx` oder Offsets unterscheiden.
+
+        // Korrigierte Annahme basierend auf der Grammatik:
+        // OptionalChaining verwendet `CONSUME(Identifier, { LABEL: "memberIdentifier" })`
+        // Dot verwendet `CONSUME2(Identifier, { LABEL: "memberIdentifier" })`
+        // Dies sollte zu `ctx.memberIdentifier` (für OptionalChaining) und `ctx.memberIdentifier2` (für Dot) führen.
+        // Wenn Chevrotain sie jedoch unter demselben Label zusammenfasst, wird es komplizierter.
+        // Wir gehen davon aus, dass `ctx.memberIdentifier` für `OptionalChaining` gilt und `ctx.memberIdentifier2` für `Dot`.
+        // Wenn `CONSUME2` nicht zu einem separaten Array führt, muss die Logik hier angepasst werden.
+        // Die Grammatik hat:
+        // OptionalChaining: this.CONSUME(Identifier, { LABEL: "memberIdentifier" });
+        // Dot: this.CONSUME2(Identifier, { LABEL: "memberIdentifier" });
+        // Chevrotain wird wahrscheinlich `ctx.memberIdentifier` als Array haben, das Tokens von beiden enthält,
+        // oder es wird `ctx.memberIdentifier` und `ctx.memberIdentifier$2` (oder ähnlich) erstellen.
+        // Wir müssen prüfen, wie Chevrotain das handhabt.
+        // Fürs Erste nehmen wir an, dass `ctx.memberIdentifier` alle relevanten Identifier enthält und wir sie
+        // den `OptionalChaining`-Tokens zuordnen können.
+
+        // Da `Dot` `CONSUME2` ein anderes Array erzeugt (z.B. memberIdentifier2)
+        // Und `OptionalChaining` verwendet `CONSUME`, also `ctx.memberIdentifier`.
+        if (ctx.memberIdentifier && ctx.memberIdentifier[i]) {
+            operations.push({ type: 'OptionalChaining', token: op, relatedToken: ctx.memberIdentifier[i], order: op.startOffset });
+        }
+      });
+    }
+    // Anpassung für Dot, falls CONSUME2 ein anderes Array erzeugt (z.B. memberIdentifier2)
+    // Wenn `CONSUME2(Identifier, { LABEL: "memberIdentifier" })` zu `ctx.memberIdentifier` (Array) führt,
+    // dann müssen wir die Tokens anders zuordnen.
+    // Die aktuelle Implementierung von `Dot` oben geht davon aus, dass `ctx.memberIdentifier` die Tokens für `Dot` enthält.
+    // Wenn `OptionalChaining` `CONSUME` und `Dot` `CONSUME2` mit demselben Label verwenden,
+    // wird Chevrotain sie wahrscheinlich in `ctx.memberIdentifier` zusammenfassen.
+    // Wir müssen die Logik zur Zuordnung der `relatedToken` überarbeiten.
+
+    // Überarbeitete Logik für Operationen-Sammlung:
+    operations.length = 0; // Array leeren und neu befüllen
+    let memberIndex = 0;
+    let member2Index = 0;
+
+    // Alle potenziellen Operationen sammeln und dann sortieren
+    const allOpsRaw = [];
+    if (ctx.OptionalChaining) {
+        ctx.OptionalChaining.forEach(op => allOpsRaw.push({type: 'OptionalChaining', opToken: op, order: op.startOffset}));
+    }
+    if (ctx.Dot) {
+        ctx.Dot.forEach(op => allOpsRaw.push({type: 'Dot', opToken: op, order: op.startOffset}));
     }
     if (ctx.LParen) {
-      ctx.LParen.forEach((op, i) => operations.push({ type: 'LParen', token: op, relatedNode: ctx.argumentList ? ctx.argumentList[i] : undefined, order: op.startOffset }));
+      ctx.LParen.forEach((op, i) => allOpsRaw.push({ type: 'LParen', opToken: op, relatedNode: ctx.argumentList ? ctx.argumentList[i] : undefined, order: op.startOffset }));
     }
     if (ctx.Increment) { // Postfix Increment
-      ctx.Increment.forEach(op => operations.push({ type: 'Increment', token: op, order: op.startOffset }));
+      ctx.Increment.forEach(op => allOpsRaw.push({ type: 'Increment', opToken: op, order: op.startOffset }));
     }
     if (ctx.Decrement) { // Postfix Decrement
-      ctx.Decrement.forEach(op => operations.push({ type: 'Decrement', token: op, order: op.startOffset }));
+      ctx.Decrement.forEach(op => allOpsRaw.push({ type: 'Decrement', opToken: op, order: op.startOffset }));
     }
     if (ctx.LBracket) { // Array-Zugriff
-      ctx.LBracket.forEach((op, i) => operations.push({ type: 'LBracket', token: op, relatedNode: ctx.indexExpression[i], order: op.startOffset }));
+      ctx.LBracket.forEach((op, i) => allOpsRaw.push({ type: 'LBracket', opToken: op, relatedNode: ctx.indexExpression[i], order: op.startOffset }));
     }
+
+    allOpsRaw.sort((a, b) => a.order - b.order);
+
+    // Jetzt die Identifier zuordnen
+    // `memberIdentifier` ist für `OptionalChaining` (CONSUME) und `Dot` (CONSUME2)
+    // Chevrotain wird `ctx.memberIdentifier` als Array aller Tokens mit diesem Label erstellen.
+    // Wir müssen sie in der Reihenfolge ihres Auftretens zuordnen.
+    let currentMemberIdentifierIndex = 0;
+    for (const rawOp of allOpsRaw) {
+        if (rawOp.type === 'OptionalChaining' || rawOp.type === 'Dot') {
+            if (ctx.memberIdentifier && ctx.memberIdentifier[currentMemberIdentifierIndex]) {
+                operations.push({ ...rawOp, relatedToken: ctx.memberIdentifier[currentMemberIdentifierIndex] });
+                currentMemberIdentifierIndex++;
+            }
+        } else {
+            operations.push(rawOp);
+        }
+    }
+
 
     if (operations.length === 0) {
       return expression; // Keine Postfix-Operationen, gib den Operanden direkt zurück
     }
 
-    // Sortiere die Operationen nach ihrem Auftreten im Quellcode
-    operations.sort((a, b) => a.order - b.order);
+    // Sortiere die Operationen nach ihrem Auftreten im Quellcode (bereits oben geschehen)
+    // operations.sort((a, b) => a.order - b.order); // Nicht mehr nötig
 
     for (const opInfo of operations) {
       if (opInfo.type === 'Dot') {
@@ -493,7 +663,16 @@ class AstBuilder extends BaseCstVisitor {
           type: "MemberExpression",
           computed: false,
           object: expression,
-          property: { type: "Identifier", name: opInfo.relatedToken.image }
+          property: { type: "Identifier", name: opInfo.relatedToken.image },
+          optional: false // Standardmäßig nicht optional
+        };
+      } else if (opInfo.type === 'OptionalChaining') { // NEU
+        expression = {
+          type: "MemberExpression",
+          computed: false,
+          object: expression,
+          property: { type: "Identifier", name: opInfo.relatedToken.image },
+          optional: true // Ist optional
         };
       } else if (opInfo.type === 'LParen') {
         const args = opInfo.relatedNode ? this.visit(opInfo.relatedNode) : [];
@@ -544,8 +723,8 @@ class AstBuilder extends BaseCstVisitor {
 
   lambdaExpression(ctx) {
     // Capture-Klausel wird derzeit in der Grammatik nicht detailliert geparst,
-    // daher wird sie hier auch nicht im AST abgebildet.
-    // LBracket und RBracket für Capture sind vorhanden.
+    // außer dem optionalen Ampersand.
+    const hasAmpersandCapture = !!ctx.captureAmpersand; // Prüfen, ob das Ampersand-Token konsumiert wurde
 
     let params = [];
     if (ctx.lambdaParameters && ctx.lambdaParameters[0]) {
@@ -569,6 +748,7 @@ class AstBuilder extends BaseCstVisitor {
 
     return {
       type: "LambdaExpression", // Oder "ArrowFunctionExpression" je nach Konvention
+      hasAmpersandCapture: hasAmpersandCapture, // NEUE Eigenschaft
       returnType: returnType, // Hinzugefügter optionaler Rückgabetyp
       params: params, // Sollte ein Array von Parameter-AST-Knoten sein
       body: body      // Sollte ein BlockStatement-AST-Knoten sein
@@ -663,47 +843,71 @@ class AstBuilder extends BaseCstVisitor {
   }
 
   forStatement(ctx) {
-    let init = null;
-    // Prüfen, ob der Initialisierungsteil eine Deklaration ist
-    if (ctx.typeSpecifier) {
-        const varType = this.visit(ctx.typeSpecifier[0]);
-        const name = ctx.Identifier[0].image;
+    // Prüfen, ob es eine foreach-Schleife ist (basierend auf den geparsten Elementen)
+    if (ctx.Colon) { // Eindeutiges Zeichen für die foreach-Variante
+      const loopVarType = this.visit(ctx.loopVariableType[0]);
+      const loopVarName = ctx.loopVariable[0].image;
+      const iterable = this.visit(ctx.iterableExpression[0]);
+      const body = this.visit(ctx.block[0]);
+      // const isConst = !!ctx.isConst; // Bisherige Prüfung
+      // Explizitere Prüfung, ob die gelabelte OPTION 'isConst' im Parser als 'true' ausgewertet wurde.
+      // Wenn OPTION({LABEL: 'isConst', ...}) genommen wurde, ist ctx.isConst === true.
+      // Wenn nicht, ist ctx.isConst === undefined.
+      const isConst = !!ctx.Const;
+
+      return {
+        type: "ForEachStatement", // Neuer AST-Knotentyp
+        isConst: isConst, // Diese Eigenschaft auf ForEachStatement ist für den Generator nicht direkt relevant
+        left: { // Die linke Seite der 'of'-Deklaration
+          type: "VariableDeclaration", // Kann als eine Art Mini-Deklaration gesehen werden
+          isConst: isConst, // Diese Eigenschaft wird vom Code-Generator verwendet
+          id: { type: "Identifier", name: loopVarName },
+          varType: loopVarType, // Typinformation für die Schleifenvariable
+          init: null // Keine direkte Initialisierung hier
+        },
+        right: iterable, // Der Ausdruck, über den iteriert wird
+        body: body
+      };
+    } else { // C-Style for-Schleife
+      let init = null;
+      if (ctx.initVarType) { // Deklaration im Initializer
+        const varType = this.visit(ctx.initVarType[0]);
+        const name = ctx.initVarName[0].image;
         let initialization = null;
-        // Wenn es eine Deklaration ist UND eine initExpression vorhanden ist
         if (ctx.initExpression && ctx.initExpression[0]) {
-            initialization = this.visit(ctx.initExpression[0]);
+          initialization = this.visit(ctx.initExpression[0]);
         }
         init = {
-            type: "VariableDeclaration",
-            isConst: !!ctx.Const,
-            id: { type: "Identifier", name: name },
-            varType: varType,
-            init: initialization
+          type: "VariableDeclaration",
+          isConst: !!(ctx.Const && ctx.Const.find(c => c.startOffset < ctx.initVarType[0].startOffset)), // Prüfen ob Const vor dem Typ steht
+          id: { type: "Identifier", name: name },
+          varType: varType,
+          init: initialization
         };
-    } else if (ctx.initExpression && ctx.initExpression[0]) {
-        // Wenn es keine Deklaration ist, aber eine initExpression vorhanden ist
+      } else if (ctx.initExpression && ctx.initExpression[0]) {
         init = this.visit(ctx.initExpression[0]);
-    }
+      }
 
-    let test = null;
-    if (ctx.testExpression && ctx.testExpression[0]) {
+      let test = null;
+      if (ctx.testExpression && ctx.testExpression[0]) {
         test = this.visit(ctx.testExpression[0]);
-    }
+      }
 
-    let update = null;
-    if (ctx.updateExpression && ctx.updateExpression[0]) {
+      let update = null;
+      if (ctx.updateExpression && ctx.updateExpression[0]) {
         update = this.visit(ctx.updateExpression[0]);
+      }
+
+      const body = this.visit(ctx.block[0]);
+
+      return {
+        type: "ForStatement",
+        init: init,
+        test: test,
+        update: update,
+        body: body
+      };
     }
-
-    const body = this.visit(ctx.block[0]);
-
-    return {
-      type: "ForStatement",
-      init: init,
-      test: test,
-      update: update,
-      body: body
-    };
   }
 
   returnStatement(ctx) {
@@ -748,7 +952,6 @@ class AstBuilder extends BaseCstVisitor {
   expressionStatement(ctx) {
     if (ctx.expression && ctx.expression[0]) {
       const expressionNode = this.visit(ctx.expression[0]);
-      // Verhindern, dass leere oder problematische Ausdrücke zu `null` im AST führen
       if (expressionNode) {
         return {
           type: "ExpressionStatement",
@@ -756,7 +959,7 @@ class AstBuilder extends BaseCstVisitor {
         };
       }
     }
-    return null; // Oder eine spezifischere Behandlung für leere Statements
+    return null; // Kann null zurückgeben, wenn kein gültiger Ausdruck gefunden wurde
   }
 }
 
