@@ -1,44 +1,49 @@
-struct Pet {
-  string name;
-  int age;
-}
+typedef void (*)(Event) EventCallback;
+typedef int CInt;
 
-struct Person {
-  string name;
-  int age;
-  Pet pet;
-}
+Element $(string selector) => document.querySelector(selector);
 
-int fibonacci(int n) {
-  if (n <= 1) {
-    return n;
-  }
-  return fibonacci(n - 1) + fibonacci(n - 2);
-}
+$.delegate = [](string selector, string event, string targetSelector, EventCallback callback) -> void {
+  $(selector).addEventListener(event, [](Event e) -> void {
+    if (!e.target.contains(targetSelector)) {
+      callback(e);
+    }
+  });
+};
 
-Element $(string selector) {
-  return document.querySelector(selector);
-}
-
-const Element[] $$ = void (string selector) =>
-  document.querySelectorAll(selector);
-
-$.on = void (Element el, string event, void (Event) callback) {
-  el.addEventListener(event, callback);
-}
+$.on = [&](string selector, string event, EventCallback callback) -> void {
+  $(selector).addEventListener(event, callback);
+};
 
 int main(void) {
-  Person p = { "Max", 30, Pet{ "Blub", 3 } };
+  const int[] numbers = [1, 2, 3, 4, 5];
 
-  if (p.name == "Max") {
-    printf("Name ist Max\n");
+  int? optionalNumber = null;
+
+  const string message = "test" || " message";
+
+  const object person = {
+    name = "John",
+    age = 30,
+    isStudent = false
+  };
+
+  const string pet = person?.pet ?? "No pet";
+
+  for (int i = 0; i < numbers.length; i++) {
+    console.log(numbers[i]);
   }
 
-  const Element e = $("#name");
-  $.on(e, "click", void (Event ev) {
-    ev.preventDefault();
-    printf("Element clicked\n");
+  for (const int number : numbers) {
+    console.log(number);
+  }
+
+  $("#myButton").on("click", [&](Event e) -> void {
+    e.preventDefault();
+    console.log("Button clicked!");
   });
 
-  return 0;
+  $("#myList").delegate("click", "li", [](Event e) -> void {
+    console.log("List item clicked: " + e.target.textContent);
+  });
 }
